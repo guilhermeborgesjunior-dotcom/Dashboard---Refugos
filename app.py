@@ -14,9 +14,19 @@ from reportlab.lib import colors
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "SUA_URL_SUPABASE")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "SUA_CHAVE_SUPABASE")
 
-@st.cache_resource
-def init_supabase() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+import os
+import streamlit as st
+from supabase import create_client, Client
+
+# Busca das chaves nos Secrets do Streamlit de forma direta
+url = st.secrets.get("SUPABASE_URL") or st.secrets.get("supabase", {}).get("SUPABASE_URL")
+key = st.secrets.get("SUPABASE_KEY") or st.secrets.get("supabase", {}).get("SUPABASE_KEY")
+
+if not url or not key:
+    st.error("Chaves do Supabase não foram encontradas nos Secrets.")
+    st.stop()
+
+supabase: Client = create_client(url, key)
 
 supabase = init_supabase()
 
