@@ -104,22 +104,6 @@ str_lit.markdown("""
     .apq-toggle:hover {
         background-color: rgba(0, 0, 0, 0.05);
     }
-
-    /* Estilo do botão de edição */
-    .btn-editar {
-        background-color: #3b82f6;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 600;
-        transition: background 0.2s;
-    }
-    .btn-editar:hover {
-        background-color: #2563eb;
-    }
     </style>
     
     <div class="header-container">
@@ -306,38 +290,51 @@ if not df.empty:
             axis=1
         )
 
-    # Captura o ID da linha selecionada para edição via parâmetros de URL
-    query_params = str_lit.query_params
-    edit_id = query_params.get("edit_rowid", None)
-
-    if edit_id:
-        str_lit.info(f"✏️ Modo de Edição Ativo para o Registro ID: {edit_id}")
+    # ==================== DIÁLOGO / MODAL DE EDIÇÃO NATIVO ====================
+    @str_lit.dialog("✏️ Editar Registro de Nota")
+    def modal_edicao(rowid):
         conn = sqlite3.connect('refugos_weg.db', timeout=10)
-        df_edit = pd.read_sql(f'SELECT rowid, * FROM tabela_notas WHERE rowid = {edit_id}', conn)
+        df_row = pd.read_sql(f'SELECT rowid, * FROM tabela_notas WHERE rowid = {rowid}', conn)
         conn.close()
-        
-        if not df_edit.empty:
-            with str_lit.form(key="form_edicao_linha"):
-                str_lit.subheader("Editar Informações da Nota")
-                nova_obs = str_lit.text_input("Observação", value=str(df_edit.iloc[0].get(col_obs, '')) if col_obs in df_edit.columns else "")
-                nova_acao = str_lit.text_input("Ação", value=str(df_edit.iloc[0].get(col_acao, '')) if col_acao in df_edit.columns else "")
+
+        if not df_row.empty:
+            r = df_row.iloc[0]
+            
+            str_lit.write(f"Editando dados referentes ao registro ID: **{rowid}**")
+            
+            with str_lit.form(key=f"form_modal_{rowid}"):
+                val_obs = str_lit.text_input("Observação", value=str(r.get(col_obs, '')) if col_obs in df_row.columns else "")
+                val_acao = str_lit.text_input("Ação", value=str(r.get(col_acao, '')) if col_acao in df_row.columns else "")
+                val_colab = str_lit.text_input("Colaborador", value=str(r.get(col_colab, '')) if col_colab in df_row.columns else "")
                 
+                # Tratamento do APQ no modal
+                apq_atual = str(r.get(col_apq, 'Pendente'))
+                status_apq_idx = 0 if apq_atual.lower() in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true'] else 1
+                val_apq = str_lit.selectbox("Status APQ", ["Concluída", "Pendente"], index=status_apq_idx)
+
                 submitted = str_lit.form_submit_button("Salvar Alterações")
                 if submitted:
                     conn = sqlite3.connect('refugos_weg.db', timeout=10)
-                    conn.execute(f"UPDATE tabela_notas SET {col_obs} = ?, {col_acao} = ? WHERE rowid = ?", (nova_obs, nova_acao, edit_id))
+                    sql_update = f"UPDATE tabela_notas SET {col_obs} = ?, {col_acao} = ?, {col_colab} = ?, {col_apq} = ? WHERE rowid = ?"
+                    conn.execute(sql_update, (val_obs, val_acao, val_colab, val_apq, rowid))
                     conn.commit()
                     conn.close()
                     
-                    str_lit.query_params.clear()
-                    str_lit.success("Registro atualizado com sucesso!")
+                    str_lit.success("Alterações salvas com sucesso!")
                     str_lit.rerun()
+
+    # Verifica se foi solicitado abrir a edição via query params
+    query_params = str_lit.query_params
+    edit_id = query_params.get("edit_rowid", None)
+    if edit_id:
+        # Limpa o param para evitar loops e abre o dialog nativo
+        str_lit.query_params.clear()
+        modal_edicao(int(edit_id))
 
     # ==================== EXIBIÇÃO DA TABELA HTML ====================
     str_lit.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
-    str_lit.markdown("💡 **Instruções:** Clique na palavra **APQ** para alternar instantaneamente entre **Vermelho (Pendente)** e **Verde (Concluído)**. Utilize o botão **Editar** na última coluna para modificar os dados da linha.")
+    str_lit.markdown("💡 **Instruções:** Clique na palavra **APQ** para alternar instantaneamente entre **Vermelho (Pendente)** e **Verde (Concluído)**. Clique no botão **Editar** para abrir o pop-up de edição.")
 
-    # Mapeamento completo com APQ e Ações ao final
     mapeamento_colunas = {
         col_secao: "Seção",
         col_defeito: "Defeito",
@@ -362,6 +359,22 @@ if not df.empty:
 
     html_tabela = """
     <div class="tabela-container-wrapper">
+    <style>
+        .btn-editar {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .btn-editar:hover {
+            background-color: #2563eb;
+        }
+    </style>
     <table id="tabela-refugos">
       <thead>
         <tr>
