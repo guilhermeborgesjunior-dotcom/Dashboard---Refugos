@@ -11,7 +11,7 @@ from reportlab.lib import colors
 # ---------------------------------------------------------
 # Configuração da Página e Tema Claro
 # ---------------------------------------------------------
-st.set_page_config(page_title="Dashboard de Refugos", layout="wide")
+st.set_page_config(page_title="Control de Refugos — Qualidade", layout="wide")
 
 st.markdown("""
     <style>
@@ -36,3 +36,44 @@ if not url or not key:
     st.stop()
 
 supabase: Client = create_client(url, key)
+
+# ---------------------------------------------------------
+# Função para Carregar Dados
+# ---------------------------------------------------------
+@st.cache_data(ttl=60)
+def carregar_dados():
+    try:
+        response = supabase.table("refugos").select("*").execute()
+        if response.data:
+            return pd.DataFrame(response.data)
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro ao conectar no banco de dados: {e}")
+        return pd.DataFrame()
+
+# ---------------------------------------------------------
+# Interface Principal
+# ---------------------------------------------------------
+st.title("🏭 Control de Refugos — Qualidade")
+
+df_full = carregar_dados()
+
+# Indicadores Rápidos
+col1, col2 = st.columns(2)
+with col1:
+    st.caption("TOTAL DE REFUGOS")
+    total_pcs = df_full["quantidade"].sum() if not df_full.empty and "quantidade" in df_full.columns else 0
+    st.subheader(f"{total_pcs} pcs")
+
+with col2:
+    st.caption("VALOR TOTAL")
+    total_valor = df_full["valor"].sum() if not df_full.empty and "valor" in df_full.columns else 0.0
+    st.subheader(f"R$ {total_valor:,.2f}")
+
+st.markdown("---")
+st.subheader("Registros de Refugo")
+
+if not df_full.empty:
+    st.dataframe(df_full, use_container_width=True)
+else:
+    st.info("Nenhum registro encontrado no banco de dados.")
