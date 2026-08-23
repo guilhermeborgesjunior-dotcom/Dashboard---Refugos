@@ -223,7 +223,7 @@ if not df.empty:
                 novo_turno = st.text_input("Turno", value=val_turno)
 
             with c2:
-                val_material = str(linha_atual[col_material]) if col_material and pd.notna(linha_atual[col_material]) else ""
+                val_material = limpa_inteiro(linha_atual[col_material]) if col_material else ""
                 novo_material = st.text_input("Material", value=val_material)
                 
                 val_desc_mat = str(linha_atual[col_desc_mat]) if col_desc_mat and pd.notna(linha_atual[col_desc_mat]) else ""
@@ -262,24 +262,23 @@ if not df.empty:
                     conn = sqlite3.connect('refugos_weg.db', timeout=10)
                     cursor = conn.cursor()
                     
-                    # Normaliza o custo recebido (substitui vírgula por ponto para salvar no banco)
                     custo_tratado = novo_custo.replace(',', '.') if novo_custo else None
 
                     updates = []
                     params = []
                     
-                    if col_secao: updates.append(f"{col_secao} = ?"); params.append(nova_secao)
-                    if col_nota: updates.append(f"{col_nota} = ?"); params.append(nova_nota)
-                    if col_turno: updates.append(f"{col_turno} = ?"); params.append(novo_turno)
-                    if col_material: updates.append(f"{col_material} = ?"); params.append(novo_material)
-                    if col_desc_mat: updates.append(f"{col_desc_mat} = ?"); params.append(nova_desc_mat)
-                    if col_qtd: updates.append(f"{col_qtd} = ?"); params.append(nova_qtd)
-                    if col_custo: updates.append(f"{col_custo} = ?"); params.append(custo_tratado)
-                    if col_causa: updates.append(f"{col_causa} = ?"); params.append(nova_causa)
-                    if col_obs: updates.append(f"{col_obs} = ?"); params.append(novo_obs)
-                    if col_acao: updates.append(f"{col_acao} = ?"); params.append(nova_acao)
-                    if col_colab: updates.append(f"{col_colab} = ?"); params.append(novo_colab)
-                    if col_prep: updates.append(f"{col_prep} = ?"); params.append(novo_prep)
+                    if col_secao: updates.append(f'"{col_secao}" = ?'); params.append(nova_secao)
+                    if col_nota: updates.append(f'"{col_nota}" = ?'); params.append(nova_nota)
+                    if col_turno: updates.append(f'"{col_turno}" = ?'); params.append(novo_turno)
+                    if col_material: updates.append(f'"{col_material}" = ?'); params.append(novo_material)
+                    if col_desc_mat: updates.append(f'"{col_desc_mat}" = ?'); params.append(nova_desc_mat)
+                    if col_qtd: updates.append(f'"{col_qtd}" = ?'); params.append(nova_qtd)
+                    if col_custo: updates.append(f'"{col_custo}" = ?'); params.append(custo_tratado)
+                    if col_causa: updates.append(f'"{col_causa}" = ?'); params.append(nova_causa)
+                    if col_obs: updates.append(f'"{col_obs}" = ?'); params.append(novo_obs)
+                    if col_acao: updates.append(f'"{col_acao}" = ?'); params.append(nova_acao)
+                    if col_colab: updates.append(f'"{col_colab}" = ?'); params.append(novo_colab)
+                    if col_prep: updates.append(f'"{col_prep}" = ?'); params.append(novo_prep)
                     
                     params.append(rowid_alvo)
                     query = f"UPDATE tabela_notas SET {', '.join(updates)} WHERE rowid = ?"
