@@ -202,12 +202,13 @@ if not df.empty:
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
     # ==================== POP-UP DE EDIÇÃO DA NOTA ====================
-    @st.dialog("✏️", width="large")
+    @st.dialog("✏️ Painel de Edição da Nota", width="large")
     def modal_edicao(rowid_alvo):
         linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
         num_nota = limpa_inteiro(linha_atual[col_nota]) if col_nota else 'N/A'
         
-        st.markdown(f"### ✏️ Nota: `{num_nota}`")
+        st.markdown(f"### ✏️ Editando Nota: `{num_nota}` (Modo de Edição Ativo)")
+        st.info("💡 Altere os campos abaixo e clique em **Salvar Alterações** para atualizar imediatamente e manter a seleção ativa.")
 
         with st.form(f"form_modal_{rowid_alvo}"):
             c1, c2, c3 = st.columns(3)
@@ -255,7 +256,14 @@ if not df.empty:
             novo_obs = st.text_area("Informações (Observação):", value=val_obs, height=80)
 
             st.write("")
-            salvar = st.form_submit_button("💾 Salvar Alterações da Nota", type="primary")
+            col_btn_salvar, col_btn_cancelar = st.columns(2)
+            with col_btn_salvar:
+                salvar = st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True)
+            with col_btn_cancelar:
+                cancelar = st.form_submit_button("❌ Cancelar", use_container_width=True)
+
+            if cancelar:
+                st.rerun()
             
             if salvar:
                 try:
@@ -294,7 +302,7 @@ if not df.empty:
 
     # ==================== EXIBIÇÃO DA TABELA UNIFICADA INTERATIVA ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
-    st.info("💡 **Dica:** Clique em qualquer célula (na data, na nota, no material, etc.) de qualquer linha para abrir o painel de edição instantaneamente.")
+    st.markdown("💡 **Instruções:** Clique em **qualquer célula** (data, nota, material, etc.) para selecionar a linha inteira. Para editar os dados da nota selecionada, utilize o botão abaixo.")
 
     mapeamento_colunas = {
         col_secao: "seção",
@@ -319,21 +327,41 @@ if not df.empty:
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
-    # Tabela unificada limpa configurada para seleção por clique na linha inteira
+    # Tabela unificada limpa com seleção de linha única por clique
     evento_tabela = st.dataframe(
         df_exibicao.drop(columns=['rowid']),
         use_container_width=True,
         hide_index=True,
-        height=450,
+        height=420,
         selection_mode="single-row",
         on_select="rerun"
     )
 
-    # Se o usuário clicar em qualquer célula, o evento captura a linha inteira correspondente
+    # Identifica a linha selecionada atual
+    rowid_selecionado = None
     if evento_tabela and evento_tabela.selection.rows:
         linha_selecionada_idx = evento_tabela.selection.rows[0]
-        r_id_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
-        modal_edicao(r_id_selecionado)
+        rowid_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
+        st.session_state['rowid_selecionado'] = rowid_selecionado
+    elif 'rowid_selecionado' in st.session_state:
+        # Mantém a seleção ativa caso o usuário clique em elementos complementares na tela
+        rowid_selecionado = st.session_state['rowid_selecionado']
+
+    # Barra de ações para a linha selecionada
+    if rowid_selecionado:
+        st.divider()
+        col_info_sel, col_btn_edit = st.columns([3, 1])
+        with col_info_sel:
+            # Localiza a nota selecionada para feedback visual claro
+            nota_sel_obj = df[df['rowid'] == rowid_selecionado]
+            if not nota_sel_obj.empty and col_nota:
+                val_n = limpa_inteiro(nota_sel_obj.iloc[0][col_nota])
+                st.markdown(f"✅ **Linha selecionada:** Nota `#{val_n}` ativa.")
+            else:
+                st.markdown("✅ **Linha selecionada:** Registro ativo.")
+        with col_btn_edit:
+            if st.button("✏️ Abrir Modo de Edição", type="primary", use_container_width=True):
+                modal_edicao(rowid_selecionado)
 
     # Botão de limpeza do banco
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
