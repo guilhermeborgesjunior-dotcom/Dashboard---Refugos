@@ -26,7 +26,7 @@ st.set_page_config(page_title="Dashboard de Refugos", layout="wide")
 # Função para Carregar Dados
 # ---------------------------------------------------------
 def carregar_dados():
-    response = supabase.table("refugos").select("*").order("id", desc=True).execute()
+    response = supabase.table("refugos").select("*").execute()
     data = response.data
     if data:
         df = pd.DataFrame(data)
