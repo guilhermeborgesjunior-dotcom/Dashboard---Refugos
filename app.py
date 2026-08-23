@@ -25,22 +25,16 @@ st.set_page_config(page_title="Dashboard de Refugos", layout="wide")
 # ---------------------------------------------------------
 # Função para Carregar Dados
 # ---------------------------------------------------------
+@st.cache_data(ttl=60)
 def carregar_dados():
-    response = supabase.table("refugos").select("*").execute()
-    data = response.data
-    if data:
-        df = pd.DataFrame(data)
-        # Garante que a coluna de observação exista
-        if 'observacao' not in df.columns:
-            df['observacao'] = ''
-        return df
-    else:
-        return pd.DataFrame(columns=[
-            "id", "secao", "defeito_tipo", "nota", "data", "turno",
-            "material", "descricao_material", "ct", "quantidade",
-            "descricao_defeito", "valor", "observacao"
-        ])
-
+    try:
+        response = supabase.table("refugos").select("*").execute()
+        if response.data:
+            return pd.DataFrame(response.data)
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro ao conectar no banco de dados: {e}")
+        return pd.DataFrame()
 # ---------------------------------------------------------
 # Gerador de PDF
 # ---------------------------------------------------------
