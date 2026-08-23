@@ -134,6 +134,24 @@ if not df.empty:
     col_colab = encontra_coluna(['colaborador', 'colcaborador'])
     col_prep = encontra_coluna(['preparador'])
 
+    # Função auxiliar para formatar valores inteiros limpos (sem .0)
+    def limpa_inteiro(val):
+        if pd.notna(val):
+            try:
+                return str(int(float(val)))
+            except:
+                return str(val)
+        return ""
+
+    # Função auxiliar para formatar custo em Real
+    def formata_custo(val):
+        if pd.notna(val):
+            try:
+                return f"{float(val):.2f}".replace('.', ',')
+            except:
+                return str(val)
+        return ""
+
     # ==================== FILTROS NA BARRA LATERAL ====================
     with st.sidebar:
         pesquisa_nota = st.text_input("Pesquisar Nota:")
@@ -183,15 +201,12 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # ==================== POP-UP DE EDIÇÃO DA NOTA (COMPACTO COM TÍTULO CUSTOMIZADO) =---
-    @st.dialog("✏️ Nota: Carregando...", width="large")
+    # ==================== POP-UP DE EDIÇÃO DA NOTA (COMPACTO E LIMPO) ====================
+    @st.dialog("✏️", width="large")
     def modal_edicao(rowid_alvo):
         linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
-        num_nota = linha_atual[col_nota] if col_nota and pd.notna(linha_atual[col_nota]) else 'N/A'
+        num_nota = limpa_inteiro(linha_atual[col_nota]) if col_nota else 'N/A'
         
-        # Como o st.dialog usa o título do decorator, criamos uma função auxiliar ou atualizamos via HTML interno se necessário,
-        # mas aqui colocamos diretamente no parâmetro title do decorator se dinâmico, ou exibimos logo abaixo de forma limpa.
-        # No Streamlit, o título do dialog é estático no decorator. Para ajustar dinamicamente, colocamos no topo do form:
         st.markdown(f"### ✏️ Nota: `{num_nota}`")
 
         with st.form(f"form_modal_{rowid_alvo}"):
@@ -201,10 +216,10 @@ if not df.empty:
                 val_secao = str(linha_atual[col_secao]) if col_secao and pd.notna(linha_atual[col_secao]) else ""
                 nova_secao = st.text_input("Seção", value=val_secao)
                 
-                val_nota = str(linha_atual[col_nota]) if col_nota and pd.notna(linha_atual[col_nota]) else ""
+                val_nota = limpa_inteiro(linha_atual[col_nota]) if col_nota else ""
                 nova_nota = st.text_input("Nota", value=val_nota)
                 
-                val_turno = str(linha_atual[col_turno]) if col_turno and pd.notna(linha_atual[col_turno]) else ""
+                val_turno = limpa_inteiro(linha_atual[col_turno]) if col_turno else ""
                 novo_turno = st.text_input("Turno", value=val_turno)
 
             with c2:
@@ -214,12 +229,12 @@ if not df.empty:
                 val_desc_mat = str(linha_atual[col_desc_mat]) if col_desc_mat and pd.notna(linha_atual[col_desc_mat]) else ""
                 nova_desc_mat = st.text_input("Descrição do Material", value=val_desc_mat)
                 
-                val_qtd = str(linha_atual[col_qtd]) if col_qtd and pd.notna(linha_atual[col_qtd]) else ""
+                val_qtd = limpa_inteiro(linha_atual[col_qtd]) if col_qtd else ""
                 nova_qtd = st.text_input("Quantidade", value=val_qtd)
 
             with c3:
-                val_custo = str(linha_atual[col_custo]) if col_custo and pd.notna(linha_atual[col_custo]) else ""
-                novo_custo = st.text_input("Custo", value=val_custo)
+                val_custo = formata_custo(linha_atual[col_custo]) if col_custo else ""
+                novo_custo = st.text_input("Custo (R$)", value=val_custo)
                 
                 val_causa = str(linha_atual[col_causa]) if col_causa and pd.notna(linha_atual[col_causa]) else ""
                 nova_causa = st.text_input("Causa", value=val_causa)
@@ -247,6 +262,9 @@ if not df.empty:
                     conn = sqlite3.connect('refugos_weg.db', timeout=10)
                     cursor = conn.cursor()
                     
+                    # Normaliza o custo recebido (substitui vírgula por ponto para salvar no banco)
+                    custo_tratado = novo_custo.replace(',', '.') if novo_custo else None
+
                     updates = []
                     params = []
                     
@@ -256,7 +274,7 @@ if not df.empty:
                     if col_material: updates.append(f"{col_material} = ?"); params.append(novo_material)
                     if col_desc_mat: updates.append(f"{col_desc_mat} = ?"); params.append(nova_desc_mat)
                     if col_qtd: updates.append(f"{col_qtd} = ?"); params.append(nova_qtd)
-                    if col_custo: updates.append(f"{col_custo} = ?"); params.append(novo_custo)
+                    if col_custo: updates.append(f"{col_custo} = ?"); params.append(custo_tratado)
                     if col_causa: updates.append(f"{col_causa} = ?"); params.append(nova_causa)
                     if col_obs: updates.append(f"{col_obs} = ?"); params.append(novo_obs)
                     if col_acao: updates.append(f"{col_acao} = ?"); params.append(nova_acao)
