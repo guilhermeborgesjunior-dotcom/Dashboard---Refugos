@@ -288,11 +288,11 @@ if not df.empty:
                     conn.close()
                     
                     st.success("Nota atualizada com sucesso!")
-                    st.rerun() # Fecha o pop-up e recarrega os dados salvos
+                    st.rerun() # Fecha o pop-up automaticamente ao salvar
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
 
-    # ==================== EXIBIÇÃO DA TABELA LIMPA COM BOTÕES DE AÇÃO NO FINAL ====================
+    # ==================== EXIBIÇÃO DA TABELA FORMATADA (SEM CHECKBOX) ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
 
     mapeamento_colunas = {
@@ -317,28 +317,25 @@ if not df.empty:
 
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
+    
+    # Adicionamos uma coluna de ação visual no final do DataFrame
+    df_exibicao["ação_editar"] = "✏️ Editar"
 
-    # Criação iterativa de linhas com um botão de edição dedicado no final de cada registro
-    for idx, row in df_exibicao.iterrows():
-        r_id = row['rowid']
-        cols_dados = st.columns([1] * len(df_exibicao.columns[1:]) + [0.8])
-        
-        # Exibe os campos de cada linha sem checkbox
-        for i, col_name in enumerate(df_exibicao.columns[1:]):
-            valor_celula = row[col_name]
-            # Limpa formatação visual de data/número se necessário
-            if pd.notna(valor_celula):
-                val_str = str(valor_celula)
-            else:
-                val_str = ""
-            cols_dados[i].write(val_str)
-            
-        # Botão de edição localizado exatamente no final da linha
-        with cols_dados[-1]:
-            if st.button("✏️ Editar", key=f"btn_edit_{r_id}"):
-                modal_edicao(r_id)
-        
-        st.divider()
+    # Exibição limpa em tabela única estruturada, sem caixas de seleção, usando st.data_editor apenas para leitura/clique de linha ou seleção limpa
+    evento_tabela = st.dataframe(
+        df_exibicao.drop(columns=['rowid']),
+        use_container_width=True,
+        hide_index=True,
+        height=450,
+        selection_mode="single-row",
+        on_select="rerun"
+    )
+
+    # Captura a seleção da linha inteira para abrir o modal de edição
+    if evento_tabela and evento_tabela.selection.rows:
+        linha_selecionada_idx = evento_tabela.selection.rows[0]
+        r_id_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
+        modal_edicao(r_id_selecionado)
 
     # Botão de limpeza do banco
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
