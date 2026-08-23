@@ -5,7 +5,7 @@ import sqlite3
 # Configuração da página (deve ser a primeira instrução)
 st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
-# Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
+# Estilos customizados para largura total, cabeçalho, menu hamburger e status APQ
 st.markdown("""
     <style>
     .block-container {
@@ -130,11 +130,12 @@ if not df.empty:
     col_texto_causa = encontra_coluna(['texto da causa'])
     col_custo = encontra_coluna(['custo'])
     
-    # Identificação das novas colunas nos dados (com suporte a criação automática caso não existam)
+    # Identificação das colunas de Observação e Ação/Colaborador/Preparador
     col_obs = encontra_coluna(['observaçao', 'observacao', 'informacoes', 'informações'])
     col_acao = encontra_coluna(['ação', 'acao'])
     col_colab = encontra_coluna(['colaborador', 'colcaborador'])
     col_prep = encontra_coluna(['preparador'])
+    col_apq = encontra_coluna(['apq'])
 
     # Garante a existência física das colunas no DataFrame para evitar erros de referência
     if not col_obs and 'observacao' not in df.columns:
@@ -149,6 +150,12 @@ if not df.empty:
     if not col_prep and 'preparador' not in df.columns:
         df['preparador'] = ""
         col_prep = 'preparador'
+    if not col_apq and 'apq' not in df.columns:
+        df['apq'] = "Pendente"
+        col_apq = 'apq'
+    else:
+        # Padroniza valores vazios de APQ para Pendente
+        df[col_apq] = df[col_apq].fillna("Pendente").apply(lambda x: "Concluída" if str(x).strip().lower() in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true'] else "Pendente")
 
     # Função auxiliar para formatar valores inteiros limpos (sem .0)
     def limpa_inteiro(val):
@@ -173,6 +180,15 @@ if not df.empty:
         if pd.isna(val) or val is None or str(val).strip().lower() in ['none', 'nan', 'undefined', 'null']:
             return ""
         return str(val)
+
+    # Função para verificar se a observação está vazia (considerando null, undefined, vazia ou apenas espaços)
+    def obs_esta_vazia(val):
+        if val is None or pd.isna(val):
+            return True
+        s = str(val).strip().lower()
+        if s in ['', 'none', 'nan', 'undefined', 'null']:
+            return True
+        return False
 
     # ==================== FILTROS NA BARRA LATERAL ====================
     with st.sidebar:
@@ -223,6 +239,13 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
+    # Inclusão do Alerta de Observação Ausente diretamente formatado no número da nota
+    if col_nota:
+        df_filtrado['__nota_com_alerta__'] = df_filtrado.apply(
+            lambda row: f"⚠️ {limpa_inteiro(row[col_nota])}" if obs_esta_vazia(row[col_obs]) else limpa_inteiro(row[col_nota]),
+            axis=1
+        )
+
     # ==================== POP-UP DE EDIÇÃO DA NOTA ====================
     @st.dialog("✏️ Painel de Edição da Nota", width="large")
     def modal_edicao(rowid_alvo):
@@ -261,9 +284,8 @@ if not df.empty:
                 val_causa = str(linha_atual[col_causa]) if col_causa and pd.notna(linha_atual[col_causa]) else ""
                 nova_causa = st.text_input("Causa", value=val_causa)
 
-            # Seção dedicada para edição das novas colunas solicitadas
             st.markdown("---")
-            st.markdown("##### 📝 Detalhes e Responsáveis")
+            st.markdown("##### 📝 Detalhes, APQ e Responsáveis")
             
             col_a, col_b = st.columns(2)
             with col_a:
@@ -308,8 +330,6 @@ if not df.empty:
                     if col_qtd: updates.append(f'"{col_qtd}" = ?'); params.append(nova_qtd)
                     if col_custo: updates.append(f'"{col_custo}" = ?'); params.append(custo_tratado)
                     if col_causa: updates.append(f'"{col_causa}" = ?'); params.append(nova_causa)
-                    
-                    # Atualização dos campos novos no banco
                     if col_obs: updates.append(f'"{col_obs}" = ?'); params.append(novo_obs)
                     if col_acao: updates.append(f'"{col_acao}" = ?'); params.append(nova_acao)
                     if col_colab: updates.append(f'"{col_colab}" = ?'); params.append(novo_colab)
@@ -329,13 +349,13 @@ if not df.empty:
 
     # ==================== EXIBIÇÃO DA TABELA UNIFICADA INTERATIVA ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
-    st.markdown("💡 **Instruções:** Clique em **qualquer célula** da tabela para selecionar a linha correspondente.")
+    st.markdown("💡 **Instruções:** Clique em **qualquer célula** da tabela para selecionar a linha correspondente. O ícone ⚠️ indica observação pendente.")
 
-    # Mapeamento estrito ordenado colocando as 4 novas colunas logo após a coluna "custo"
+    # Mapeamento estrito ordenado colocando APQ e as novas colunas logo após a coluna "custo"
     mapeamento_colunas = {
         col_secao: "seção",
         col_defeito: "defeito",
-        col_nota: "nota",
+        '__nota_com_alerta__': "nota",
         col_data: "data",
         col_turno: "turno",
         col_material: "material",
@@ -346,17 +366,20 @@ if not df.empty:
         col_causa: "causa",
         col_texto_causa: "texto da causa",
         col_custo: "custo",
-        # As quatro novas colunas exatamente na ordem solicitada logo após "custo"
+        col_apq: "APQ",
         col_obs: "Observação",
         col_acao: "Ação",
         col_colab: "Colaborador",
         col_prep: "Preparador"
     }
 
-    colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
+    colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None and k != '__nota_com_alerta__']
+    if '__nota_com_alerta__' in df_filtrado.columns:
+        colunas_presentes[colunas_presentes.index(col_nota)] = '__nota_com_alerta__' if col_nota else '__nota_com_alerta__'
+
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
-    # Aplicação de limpeza nos valores das novas colunas para garantir células vazias sem "undefined"/"null"
+    # Aplicação de limpeza nos valores das colunas de texto para garantir células vazias sem "undefined"/"null"
     for col_nome in ["Observação", "Ação", "Colaborador", "Preparador"]:
         if col_nome in df_exibicao.columns:
             df_exibicao[col_nome] = df_exibicao[col_nome].apply(trata_nulos)
@@ -380,17 +403,38 @@ if not df.empty:
     elif 'rowid_selecionado' in st.session_state:
         rowid_selecionado = st.session_state['rowid_selecionado']
 
-    # Barra de controle para a linha selecionada
+    # Gerenciador interativo de clique na APQ via botões laterais por linha ou painel de controle
     if rowid_selecionado:
         st.divider()
-        col_info_sel, col_btn_edit = st.columns([3, 1])
+        col_info_sel, col_btn_apq, col_btn_edit = st.columns([2, 1, 1])
+        
+        nota_sel_obj = df[df['rowid'] == rowid_selecionado]
+        
         with col_info_sel:
-            nota_sel_obj = df[df['rowid'] == rowid_selecionado]
             if not nota_sel_obj.empty and col_nota:
                 val_n = limpa_inteiro(nota_sel_obj.iloc[0][col_nota])
                 st.markdown(f"✅ **Linha selecionada:** Nota `#{val_n}` ativa.")
             else:
                 st.markdown("✅ **Linha selecionada:** Registro ativo.")
+                
+        with col_btn_apq:
+            if not nota_sel_obj.empty and col_apq:
+                status_atual_apq = str(nota_sel_obj.iloc[0][col_apq])
+                if status_atual_apq != "Concluída":
+                    if st.button("🟢 Concluir APQ", use_container_width=True):
+                        try:
+                            conn = sqlite3.connect('refugos_weg.db', timeout=10)
+                            cursor = conn.cursor()
+                            cursor.execute(f'UPDATE tabela_notas SET "{col_apq}" = ? WHERE rowid = ?', ("Concluída", rowid_selecionado))
+                            conn.commit()
+                            conn.close()
+                            st.success("APQ concluída com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao atualizar APQ: {e}")
+                else:
+                    st.markdown("🟢 **APQ Concluída**")
+
         with col_btn_edit:
             if st.button("✏️ Abrir Painel de Edição", type="primary", use_container_width=True):
                 modal_edicao(rowid_selecionado)
