@@ -3,8 +3,7 @@ import pandas as pd
 import sqlite3
 from pathlib import Path
 from datetime import datetime, date
-import traceback
-import numpy as np
+from io import BytesIO
 
 # ============================================================
 # CONFIGURAÇÃO
@@ -18,8 +17,28 @@ st.set_page_config(
 DB_PATH = Path("refugos_weg.db")
 TABLE_NAME = "tabela_notas"
 
-# ✅ COLUNAS A IGNORAR
-COLUNAS_IGNORAR = ["dia", "semana", "mês", "ano", "semana do ano", "__ano__", "__mes__"]
+# ✅ COLUNAS QUE QUEREMOS DA ABA "NOTAS" (nome: índice da coluna)
+# Baseado na análise do seu arquivo:
+# 3=SEÇÃO, 4=DEFEITO, 5=NOTA, 6=DATA, 7=TURNO, 10=MATERIAL
+# 11=DESCRIÇÃO DO MATERIAL, 12=CT CAUSADOR, 13=QUANTIDADE
+# 16=DESCRIÇÃO DO DEFEITO, 18=CAUSA, 19=TEXTO DA CAUSA, 21=CUSTO REFUGO
+COLUNAS_IMPORTAR = {
+    "SEÇÃO": 2,       # índice 0-based = coluna C
+    "DEFEITO": 3,     # coluna D
+    "NOTA": 4,        # coluna E
+    "DATA": 5,        # coluna F
+    "TURNO": 6,       # coluna G
+    "MATERIAL": 9,    # coluna J
+    "DESCRIÇÃO DO MATERIAL": 10,  # coluna K
+    "CT CAUSADOR": 11,           # coluna L
+    "QUANTIDADE": 12,            # coluna M
+    "DESCRIÇÃO DO DEFEITO": 15,  # coluna P
+    "CAUSA": 17,                 # coluna R
+    "TEXTO DA CAUSA": 18,        # coluna S
+    "CUSTO REFUGO": 20,          # coluna V
+}
+
+COLUNAS_IGNORAR = ["dia", "semana", "mês", "ano", "__ano__", "__mes__"]
 
 # ============================================================
 # ESTILO
@@ -59,18 +78,12 @@ def table_exists():
         return cur.fetchone() is not None
     finally: conn.close()
 
-def remover_colunas_extras(df):
-    cols = [c for c in df.columns if str(c).strip().lower() not in COLUNAS_IGNORAR]
-    return df[cols]
-
 def converter_datas_para_texto(df):
-    """✅ Converte colunas Timestamp para string (compatível com SQLite)"""
+    """Converte datas para string compatível com SQLite"""
     df = df.copy()
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             df[col] = df[col].dt.strftime("%Y-%m-%d").fillna("")
-        elif pd.api.types.is_timedelta64_dtype(df[col]):
-            df[col] = df[col].astype(str).fillna("")
     return df
 
 def load_data():
@@ -78,9 +91,9 @@ def load_data():
     conn = get_connection()
     try:
         df = pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
-        return remover_colunas_extras(df)
+        return df
     except Exception as e:
-        st.error(f"Erro ao carregar banco: {e}")
+        st.error(f"Erro ao carregar: {e}")
         return pd.DataFrame()
     finally: conn.close()
 
@@ -89,7 +102,7 @@ def load_data():
 # ============================================================
 def normalize_columns(df):
     df = df.copy()
-    df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
+    df.columns = [str(c).strip().replace("\n", " ").title() for c in df.columns]
     return df
 
 def find_column(df, terms):
@@ -116,104 +129,99 @@ def parse_valor_numerico(valor):
     except: return 0
 
 # ============================================================
-# 📂 LEITURA ROBUSTA DO ARQUIVO
+# 🚀 LEITURA OTIMIZADA — DIRETO DA MEMÓRIA, SÓ COLUNAS NECESSÁRIAS
 # ============================================================
-def ler_arquivo_excel(arquivo_carregado):
-    nome_arquivo = arquivo_carregado.name
-    sufixo = Path(nome_arquivo).suffix.lower()
+def ler_arquivo_otimizado(arquivo_carregado):
+    """
+    Lê APENAS a aba "Notas" e SOMENTE as colunas que precisamos.
+    Muito mais rápido! Usa openpyxl em modo leitura.
+    """
+    import openpyxl
     
-    import tempfile
-    with tempfile.NamedTemporaryFile(delete=False, suffix=sufixo) as tmp:
-        tmp.write(arquivo_carregado.getvalue())
-        caminho_temp = tmp.name
+    # Lê direto da memória (BytesIO), sem arquivo temporário
+    dados_bytes = BytesIO(arquivo_carregado.getvalue())
     
-    try:
-        # Tenta 1: openpyxl
-        try:
-            xl = pd.ExcelFile(caminho_temp, engine="openpyxl")
-            abas = xl.sheet_names
-            st.info(f"📑 Abas encontradas: {', '.join(abas)}")
-            
-            alvo = None
-            for aba in abas:
-                if "nota" in aba.lower():
-                    alvo = aba
-                    break
-            
-            if alvo is None:
-                raise ValueError(f"Aba 'Notas' não encontrada!\nAbas disponíveis: {', '.join(abas)}")
-            
-            st.info(f"📖 Lendo aba: {alvo}")
-            df = pd.read_excel(caminho_temp, sheet_name=alvo, engine="openpyxl")
-            return df
-            
-        except Exception as e1:
-            st.warning(f"Tentativa 1 falhou: {str(e1)[:100]}")
-            
-            # Tenta 2: xlrd
-            if sufixo == ".xls":
-                try:
-                    xl = pd.ExcelFile(caminho_temp, engine="xlrd")
-                    abas = xl.sheet_names
-                    st.info(f"📑 Abas encontradas: {', '.join(abas)}")
-                    
-                    alvo = None
-                    for aba in abas:
-                        if "nota" in aba.lower():
-                            alvo = aba
-                            break
-                    
-                    if alvo:
-                        st.info(f"📖 Lendo aba: {alvo}")
-                        df = pd.read_excel(caminho_temp, sheet_name=alvo, engine="xlrd")
-                        return df
-                except Exception as e2:
-                    st.warning(f"Tentativa 2 falhou: {str(e2)[:100]}")
-            
-            # Tenta 3: primeira aba
-            try:
-                st.info("📖 Tentando ler a PRIMEIRA aba...")
-                df = pd.read_excel(caminho_temp, sheet_name=0, engine="openpyxl")
-                st.success("✅ Leitura da primeira aba bem-sucedida!")
-                return df
-            except Exception as e3:
-                raise RuntimeError(
-                    f"Não foi possível ler o arquivo.\n"
-                    f"Erro: {str(e3)}\n"
-                    f"Dica: Verifique se o arquivo não está protegido por senha."
-                )
-    finally:
-        try: Path(caminho_temp).unlink()
-        except: pass
+    # Modo leitura + apenas valores (não recalcula fórmulas!)
+    wb = openpyxl.load_workbook(dados_bytes, read_only=True, data_only=True)
+    
+    # Procura a aba "Notas"
+    if "Notas" not in wb.sheetnames:
+        raise ValueError(f"Aba 'Notas' não encontrada! Abas disponíveis: {', '.join(wb.sheetnames)}")
+    
+    ws = wb["Notas"]
+    
+    # Pega os índices das colunas que queremos
+    indices_colunas = list(COLUNAS_IMPORTAR.values())
+    nomes_colunas = list(COLUNAS_IMPORTAR.keys())
+    
+    # Lê os dados de forma eficiente (iter_rows)
+    dados = []
+    for i, linha in enumerate(ws.iter_rows(min_row=2, values_only=True)):
+        if i >= 10000: break  # limite de segurança
+        
+        # Verifica se a linha tem dados (pelo menos NOTA não vazia)
+        if len(linha) <= 4 or linha[4] is None or str(linha[4]).strip() == "":
+            continue
+        
+        registro = []
+        for idx in indices_colunas:
+            if idx < len(linha):
+                valor = linha[idx]
+                # Converte datas para string
+                if isinstance(valor, datetime):
+                    valor = valor.strftime("%Y-%m-%d")
+                registro.append(valor)
+            else:
+                registro.append(None)
+        dados.append(registro)
+    
+    wb.close()
+    
+    # Cria DataFrame
+    df = pd.DataFrame(dados, columns=nomes_colunas)
+    
+    # Adiciona colunas extras para edição
+    colunas_extras = ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP"]
+    for col in colunas_extras:
+        df[col] = ""
+    
+    # Define APQ padrão
+    df["APQ"] = "Pendente"
+    
+    return df
 
 # ============================================================
-# 💾 SALVAR DADOS — ✅ CORRIGIDO: converte datas antes de salvar
+# 💾 SALVAR OTIMIZADO
 # ============================================================
 def salvar_dados(df_novo):
-    df_novo = remover_colunas_extras(df_novo)
-    df_novo = converter_datas_para_texto(df_novo)  # ✅ SOLUÇÃO DO ERRO!
-    
+    df_novo = converter_datas_para_texto(df_novo)
     col_nota = find_column(df_novo, ["nota"])
     
     if not col_nota:
-        st.error("Coluna 'Nota' não encontrada!")
-        st.write("Colunas disponíveis:")
-        st.write(list(df_novo.columns))
-        raise ValueError("Coluna 'Nota' não encontrada na planilha")
+        raise ValueError("Coluna 'Nota' não encontrada!")
 
     df_novo[col_nota] = df_novo[col_nota].astype(str).str.strip()
     conn = get_connection()
 
     if table_exists():
         df_antigo = pd.read_sql(f'SELECT * FROM "{TABLE_NAME}"', conn)
-        df_antigo = remover_colunas_extras(df_antigo)
-        df_antigo = converter_datas_para_texto(df_antigo)  # ✅ Converte datas antigas também
-        
+        df_antigo = converter_datas_para_texto(df_antigo)
         col_nota_ant = find_column(df_antigo, ["nota"])
+        
         if col_nota_ant:
             df_antigo[col_nota_ant] = df_antigo[col_nota_ant].astype(str).str.strip()
             notas_antigas = set(df_antigo[col_nota_ant].unique())
             novas = len(set(df_novo[col_nota].unique()) - notas_antigas)
+            
+            # Merge: mantém colunas extras (Observações, Ação, etc) dos dados antigos
+            colunas_preservar = ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP", col_nota_ant]
+            colunas_preservar = [c for c in colunas_preservar if c in df_antigo.columns]
+            
+            if len(colunas_preservar) > 1:
+                df_antigo_preservar = df_antigo[colunas_preservar].copy()
+                df_novo = df_novo.drop(columns=[c for c in colunas_preservar if c != col_nota], errors="ignore")
+                df_novo = df_novo.merge(df_antigo_preservar, on=col_nota, how="left")
+            
             df_final = pd.concat([df_novo, df_antigo]).drop_duplicates(subset=col_nota, keep="first")
         else:
             df_final = df_novo
@@ -222,9 +230,7 @@ def salvar_dados(df_novo):
         df_final = df_novo
         novas = len(df_novo)
 
-    # ✅ Garante que NÃO tem Timestamp antes de salvar
     df_final = converter_datas_para_texto(df_final)
-    
     df_final.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
     conn.commit()
     conn.close()
@@ -243,20 +249,22 @@ with st.sidebar:
 
         if arq is not None:
             try:
-                st.info(f"📖 Processando: {arq.name}...")
-                df = ler_arquivo_excel(arq)
+                with st.spinner(f"📖 Lendo {arq.name}..."):
+                    df = ler_arquivo_otimizado(arq)
                 
                 if df.empty:
-                    st.warning("⚠️ A planilha está vazia.")
+                    st.warning("⚠️ Nenhum dado encontrado na aba 'Notas'.")
                 else:
-                    df = normalize_columns(df)
-                    total, novas = salvar_dados(df)
-                    st.success(f"✅ {total} registros importados! ({novas} novas notas)")
+                    with st.spinner("💾 Salvando no banco..."):
+                        total, novas = salvar_dados(df)
+                    
+                    st.success(f"✅ {total} registros! ({novas} novas notas)")
                     st.rerun()
                     
             except Exception as e:
-                st.error(f"❌ ERRO: {str(e)}")
-                with st.expander("🔍 Ver detalhes técnicos"):
+                st.error(f"❌ Erro: {str(e)}")
+                import traceback
+                with st.expander("🔍 Detalhes"):
                     st.code(traceback.format_exc())
 
     st.divider()
@@ -267,7 +275,7 @@ with st.sidebar:
 # ============================================================
 df = load_data()
 if df.empty:
-    st.warning("⚠️ Banco vazio → Selecione sua planilha no menu lateral acima 👆")
+    st.warning("⚠️ Banco vazio → Selecione sua planilha no menu lateral 👆")
     st.stop()
 
 # Mapeia colunas
@@ -336,4 +344,42 @@ with c4:
 # ============================================================
 cols_exibir = [c for c in df_filt.columns if c not in ["__ano__", "__mes__"]]
 df_edit = df_filt[cols_exibir].copy()
-st.data_editor(df_edit, use_container_width=True, hide_index=True, num_rows="fixed", key="tabela")
+
+# Configura coluna APQ como select
+config_colunas = {}
+if col_apq:
+    config_colunas[col_apq] = st.column_config.SelectboxColumn(
+        "APQ", options=["Pendente", "Concluída"], required=True
+    )
+
+df_salvo = st.data_editor(
+    df_edit, use_container_width=True, hide_index=True, num_rows="fixed",
+    column_config=config_colunas, key="tabela_editor"
+)
+
+# Botão salvar
+if st.button("💾 Salvar Alterações", type="primary"):
+    try:
+        if "rowid" not in df_salvo.columns:
+            raise ValueError("Reimporte os dados.")
+        
+        conn = get_connection()
+        for _, linha in df_salvo.iterrows():
+            rid = int(linha["rowid"])
+            obs = str(linha.get(col_obs, "")).strip() if col_obs else ""
+            acao = str(linha.get(col_acao, "")).strip() if col_acao else ""
+            colab = str(linha.get(col_colab, "")).strip() if col_colab else ""
+            apq = str(linha.get(col_apq, "Pendente")).strip() if col_apq else "Pendente"
+            
+            conn.execute(f"""
+                UPDATE "{TABLE_NAME}"
+                SET "Observações"=?, "Ação"=?, "Colaborador"=?, "APQ"=?
+                WHERE rowid=?
+            """, (obs, acao, colab, apq, rid))
+        
+        conn.commit()
+        conn.close()
+        st.success("✅ Salvo!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"❌ Erro: {e}")
