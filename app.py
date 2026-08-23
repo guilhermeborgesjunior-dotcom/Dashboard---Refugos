@@ -2,21 +2,33 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 
-# Configuração da página
+# Configuração da página (deve ser a primeira instrução)
 st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
-# Estilos customizados (Cabeçalho azul marinho com imagem de usinagem translúcida)
+# Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
 st.markdown("""
     <style>
+    /* Remove o espaçamento superior padrão do Streamlit para o cabeçalho colar no topo */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Cabeçalho ocupando 100% da largura da tela */
     .header-container {
         position: relative;
-        background-image: linear-gradient(rgba(10, 25, 47, 0.85), rgba(10, 25, 47, 0.85)), 
+        background-image: linear-gradient(rgba(10, 25, 47, 0.88), rgba(10, 25, 47, 0.88)), 
                           url('https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=1600&q=80');
         background-size: cover;
         background-position: center;
-        padding: 40px;
-        border-radius: 12px;
+        padding: 35px 40px;
+        border-radius: 0px 0px 12px 12px;
         color: white;
+        margin-left: -2rem;
+        margin-right: -2rem;
+        margin-top: -4rem;
         margin-bottom: 25px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
@@ -30,6 +42,20 @@ st.markdown("""
         font-size: 1rem;
         color: #94a3b8;
         margin-top: 5px;
+    }
+
+    /* Posiciona o botão de menu (hambúrguer) do Streamlit no canto superior direito */
+    [data-testid="collapsedControl"] {
+        position: fixed !important;
+        top: 15px !important;
+        right: 20px !important;
+        z-index: 999999 !important;
+        background-color: #0a192f !important;
+        border-radius: 5px;
+        color: white !important;
+    }
+    [data-testid="collapsedControl"] svg {
+        fill: white !important;
     }
     </style>
     
@@ -46,7 +72,7 @@ def init_db():
 
 init_db()
 
-# ==================== MENU LATERAL (OCULTO) ====================
+# ==================== MENU LATERAL (OCULTO / HAMBÚRGUER DIREITO) ====================
 with st.sidebar:
     st.header("🛠️ Menu de Opções")
     
@@ -162,7 +188,7 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # Dicionário de mapeamento para renomear e ordenar exatamente como solicitado
+    # Mapeamento para renomear e ordenar exatamente como solicitado
     mapeamento_colunas = {
         col_secao: "seção",
         col_defeito: "defeito",
@@ -200,4 +226,4 @@ if not df.empty:
         st.rerun()
 
 else:
-    st.warning("⚠️ O banco de dados está vazio. Vá no menu lateral esquerdo, abra '📂 Importar e Gerenciar Dados' e envie a planilha. O sistema buscará automaticamente os dados na aba **'Notas'**.")
+    st.warning("⚠️ O banco de dados está vazio. Clique no ícone de menu (3 barrinhas) no canto superior direito, abra '📂 Importar e Gerenciar Dados' e envie a planilha.")
