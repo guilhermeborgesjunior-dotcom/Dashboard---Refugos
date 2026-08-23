@@ -12,7 +12,7 @@ import re
 st.set_page_config(
     page_title="Dashboard Refugos - WEG UFE",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 DB_PATH = Path("refugos_weg.db")
@@ -26,24 +26,59 @@ COLUNAS_IMPORTAR = {
 }
 
 # ============================================================
-# ESTILO
+# 🎨 ESTILO PROFISSIONAL
 # ============================================================
 st.markdown("""
 <style>
-.block-container { padding-top: 1rem !important; padding-left: 2rem !important; padding-right: 2rem !important; max-width: 100% !important; }
+/* ---- Layout Geral ---- */
+.block-container { padding: 1rem 2rem !important; max-width: 100% !important; }
+
+/* ---- Cabeçalho Compacto ---- */
 .header-container {
-    background: linear-gradient(rgba(10,25,47,.88), rgba(10,25,47,.88)), url('https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=1600&q=80');
-    background-size: cover; background-position: center;
-    padding: 35px 40px; border-radius: 0 0 12px 12px; color: white;
-    margin: -4rem -2rem 1rem -2rem; box-shadow: 0 4px 6px rgba(0,0,0,.3);
+    background: linear-gradient(90deg, #0a192f 0%, #112240 100%);
+    padding: 1.2rem 2rem;
+    border-radius: 8px;
+    color: white;
+    margin: 0 0 1.5rem 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
-.header-title { font-size: 2.2rem; font-weight: 700; margin: 0; color: #fff; }
-.header-subtitle { font-size: 1rem; color: #94a3b8; margin-top: 5px; }
-[data-testid="collapsedControl"] { position: fixed !important; top: 15px !important; right: 20px !important; z-index: 999999 !important; background-color: #0a192f !important; border-radius: 5px; color: white !important; }
+.header-title { font-size: 1.6rem; font-weight: 700; margin: 0; color: #fff; }
+.header-subtitle { font-size: 0.95rem; color: #8892b0; margin-top: 0.25rem; }
+
+/* ---- Cards de Indicadores ---- */
+.metric-card {
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    border-left: 4px solid;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.metric-card.notas { border-color: #3b82f6; }
+.metric-card.qtd  { border-color: #10b981; }
+.metric-card.custo { border-color: #f59e0b; }
+.metric-card.apq   { border-color: #8b5cf6; }
+.metric-value { font-size: 1.8rem; font-weight: 700; line-height: 1.2; }
+.metric-label { font-size: 0.85rem; color: #64748b; }
+
+/* ---- Tabela ---- */
+div[data-testid="stDataFrame"] { border-radius: 8px; }
+table { font-size: 0.9rem; }
+th { background: #f1f5f9 !important; color: #334155 !important; font-weight: 600 !important; }
+tr:nth-child(even) { background: #f8fafc; }
+
+/* ---- Botões ---- */
+div.stButton > button:first-child { width: 100%; }
+.btn-danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.btn-danger:hover { background: #fee2e2; color: #b91c1c; }
+
+/* ---- Sidebar ---- */
+section[data-testid="stSidebar"] { background: #f1f5f9; }
+section[data-testid="stSidebar"] > div { padding: 1.5rem 1rem; }
 </style>
+
 <div class="header-container">
-    <div class="header-title">⚙️ Dashboard de Refugos - WEG UFE</div>
-    <div class="header-subtitle">Gestão de Apontamentos da Aba "Notas"</div>
+    <h1 class="header-title">⚙️ Dashboard de Refugos — WEG UFE</h1>
+    <p class="header-subtitle">Gestão de Apontamentos · Aba "Notas"</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -79,32 +114,18 @@ def formatar_data_br(valor):
     return s
 
 def converter_quantidade_inteira(valor):
-    """✅ Converte quantidade para NÚMERO INTEIRO"""
-    if pd.isna(valor) or str(valor).strip() == "":
-        return 0
-    s = str(valor).strip()
-    # Remove pontos de milhar e troca vírgula decimal por ponto
-    s = s.replace(".", "").replace(",", ".")
-    try:
-        return int(round(float(s)))
-    except:
-        return 0
+    if pd.isna(valor) or str(valor).strip() == "": return 0
+    s = str(valor).strip().replace(".", "").replace(",", ".")
+    try: return int(round(float(s)))
+    except: return 0
 
 def converter_custo(valor):
-    """✅ Converte custo para valor monetário"""
-    if pd.isna(valor) or str(valor).strip() == "":
-        return 0.0
+    if pd.isna(valor) or str(valor).strip() == "": return 0.0
     s = str(valor).strip().replace("R$", "").replace(" ", "")
-    # Se tem vírgula E ponto: ponto é milhar, vírgula é decimal
-    if "." in s and "," in s:
-        s = s.replace(".", "").replace(",", ".")
-    # Se só tem vírgula: é decimal
-    elif "," in s:
-        s = s.replace(",", ".")
-    try:
-        return float(s)
-    except:
-        return 0.0
+    if "." in s and "," in s: s = s.replace(".", "").replace(",", ".")
+    elif "," in s: s = s.replace(",", ".")
+    try: return float(s)
+    except: return 0.0
 
 # ============================================================
 # BANCO DE DADOS
@@ -170,14 +191,10 @@ def ler_arquivo_otimizado(arquivo_carregado):
         for j, idx in enumerate(indices):
             if idx < len(linha):
                 valor = linha[idx]
-                if j == idx_nota:
-                    valor = limpar_nota(valor)
-                elif j == idx_data:
-                    valor = formatar_data_br(valor)
-                elif j == idx_qtd:
-                    valor = converter_quantidade_inteira(valor)  # ✅ Quantidade inteira
-                elif isinstance(valor, datetime):
-                    valor = valor.strftime("%d/%m/%Y")
+                if j == idx_nota: valor = limpar_nota(valor)
+                elif j == idx_data: valor = formatar_data_br(valor)
+                elif j == idx_qtd: valor = converter_quantidade_inteira(valor)
+                elif isinstance(valor, datetime): valor = valor.strftime("%d/%m/%Y")
                 registro.append(valor)
             else:
                 registro.append(None)
@@ -185,15 +202,11 @@ def ler_arquivo_otimizado(arquivo_carregado):
     
     wb.close()
     df = pd.DataFrame(dados, columns=nomes)
-    
-    # Remove duplicatas
     df = df.drop_duplicates(subset=["NOTA"], keep="first")
     
-    # Colunas extras
     for col in ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP"]:
         df[col] = ""
     df["APQ"] = "Pendente"
-    
     return df
 
 # ============================================================
@@ -207,14 +220,12 @@ def salvar_dados(df_novo):
     df_novo = df_novo.drop_duplicates(subset=[col_nota], keep="first")
     
     conn = get_connection()
-    
     if table_exists():
         df_antigo = pd.read_sql(f'SELECT * FROM "{TABLE_NAME}"', conn)
         col_nota_ant = find_column(df_antigo, ["nota"])
         
         if col_nota_ant:
             df_antigo = limpar_coluna_nota(df_antigo, col_nota_ant)
-            
             cols_pres = [c for c in 
                 ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP", col_nota_ant]
                 if c in df_antigo.columns]
@@ -241,43 +252,62 @@ def salvar_dados(df_novo):
     return len(df_novo), novas
 
 # ============================================================
-# 📂 MENU LATERAL
+# 📂 BARRA LATERAL — ORGANIZADA
 # ============================================================
 with st.sidebar:
-    st.header("🛠️ Menu")
-    with st.expander("📂 Importar", expanded=False):
-        arq = st.file_uploader("Planilha (.xlsx, .xlsm, .xls)", type=["xlsx", "xlsm", "xls"])
-        if arq is not None:
-            try:
-                with st.spinner(f"📖 Lendo..."):
-                    df = ler_arquivo_otimizado(arq)
-                if df.empty:
-                    st.warning("⚠️ Sem dados.")
-                else:
-                    with st.spinner("💾 Salvando..."):
-                        total, novas = salvar_dados(df)
-                    st.success(f"✅ {total} registros! ({novas} novas)")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"❌ {str(e)}")
-    
+    st.header("📂 Importar Dados")
+    arq = st.file_uploader("Selecione a Planilha", type=["xlsx", "xlsm", "xls"], label_visibility="collapsed")
+    if arq is not None:
+        try:
+            with st.spinner("Lendo arquivo..."):
+                df = ler_arquivo_otimizado(arq)
+            if df.empty:
+                st.warning("⚠️ Sem dados encontrados.")
+            else:
+                with st.spinner("Salvando..."):
+                    total, novas = salvar_dados(df)
+                st.success(f"✅ {total} registros! ({novas} novas notas)")
+                st.rerun()
+        except Exception as e:
+            st.error(f"❌ {str(e)}")
+
     st.divider()
-    st.subheader("⚠️ Administração")
-    if st.button("🗑️ Limpar Banco"):
+    st.header("🔍 Filtros")
+    
+    pesq = st.text_input("Pesquisar Nota", placeholder="Digite o número...")
+    
+    col_data = find_column(load_data(), ["data"])
+    df_temp = load_data()
+    tem_data = col_data and not df_temp.empty
+    
+    f_ano = f_mes = "Todos"
+    if tem_data:
+        df_temp["__dt__"] = pd.to_datetime(df_temp[col_data], format="%d/%m/%Y", errors="coerce")
+        f_ano = st.selectbox("📅 Ano", ["Todos"] + sorted([str(int(x)) for x in df_temp["__dt__"].dt.year.dropna().unique()]))
+        f_mes = st.selectbox("📅 Mês", ["Todos"] + sorted([str(int(x)) for x in df_temp["__dt__"].dt.month.dropna().unique()]))
+    
+    col_secao = find_column(df_temp, ["seção"])
+    secoes = ["Todas"] + sorted(df_temp[col_secao].dropna().astype(str).str.strip().unique().tolist()) if col_secao else ["Todas"]
+    f_sec = st.selectbox("🏭 Seção", secoes)
+    
+    col_turno = find_column(df_temp, ["turno"])
+    turnos = ["Todos"] + sorted(df_temp[col_turno].dropna().astype(str).str.strip().unique().tolist()) if col_turno else ["Todos"]
+    f_turno = st.selectbox("⏰ Turno", turnos)
+
+    st.divider()
+    st.header("⚠️ Administração")
+    if st.button("🗑️ Limpar Banco", type="secondary"):
         if DB_PATH.exists():
             DB_PATH.unlink()
-            st.success("✅ Banco apagado!")
+            st.success("✅ Banco apagado! Reimporte o arquivo.")
             st.rerun()
-    
-    st.divider()
-    st.subheader("🔍 Filtros")
 
 # ============================================================
 # CARREGAR DADOS
 # ============================================================
 df = load_data()
 if df.empty:
-    st.warning("⚠️ Banco vazio → Importe sua planilha 👆")
+    st.info("👋 Bem-vindo! Importe sua planilha pela barra lateral para começar.")
     st.stop()
 
 col_nota = find_column(df, ["nota"])
@@ -286,10 +316,10 @@ col_secao = find_column(df, ["seção", "secao"])
 col_turno = find_column(df, ["turno"])
 col_qtd = find_column(df, ["quantidade"])
 col_custo = find_column(df, ["custo"])
-col_colab = find_column(df, ["colaborador"])
+col_apq = find_column(df, ["apq"])
 col_obs = find_column(df, ["observação", "observacao", "observações"])
 col_acao = find_column(df, ["ação", "acao"])
-col_apq = find_column(df, ["apq"])
+col_colab = find_column(df, ["colaborador"])
 
 # Data para filtro
 df["__dt__"] = pd.to_datetime(df[col_data], format="%d/%m/%Y", errors="coerce") if col_data else pd.NaT
@@ -297,20 +327,8 @@ df["__ano__"] = df["__dt__"].dt.year.astype("Int64")
 df["__mes__"] = df["__dt__"].dt.month.astype("Int64")
 
 # ============================================================
-# FILTROS
+# APLICAR FILTROS
 # ============================================================
-with st.sidebar:
-    pesq = st.text_input("Pesquisar Nota")
-    secoes = ["Todas"] + sorted(df[col_secao].dropna().astype(str).str.strip().unique().tolist()) if col_secao else ["Todas"]
-    f_sec = st.selectbox("Seção", secoes)
-    turnos = ["Todos"] + sorted(df[col_turno].dropna().astype(str).str.strip().unique().tolist()) if col_turno else ["Todos"]
-    f_turno = st.selectbox("Turno", turnos)
-    f_mes = f_ano = "Todos"
-    if not df["__mes__"].dropna().empty:
-        f_mes = st.selectbox("Mês", ["Todos"] + sorted([str(int(x)) for x in df["__mes__"].dropna().unique()]))
-        f_ano = st.selectbox("Ano", ["Todos"] + sorted([str(int(x)) for x in df["__ano__"].dropna().unique()]))
-
-# Aplica filtros
 df_f = df.copy()
 if pesq and col_nota:
     df_f = df_f[df_f[col_nota].astype(str).str.contains(pesq, case=False, na=False)]
@@ -318,48 +336,64 @@ if f_sec != "Todas" and col_secao:
     df_f = df_f[df_f[col_secao].astype(str).str.strip() == f_sec]
 if f_turno != "Todos" and col_turno:
     df_f = df_f[df_f[col_turno].astype(str).str.strip() == f_turno]
-if f_mes != "Todos":
-    df_f = df_f[df_f["__mes__"].astype(str) == f_mes]
 if f_ano != "Todos":
     df_f = df_f[df_f["__ano__"].astype(str) == f_ano]
+if f_mes != "Todos":
+    df_f = df_f[df_f["__mes__"].astype(str) == f_mes]
 
 # ============================================================
-# 📊 CÁLCULO DOS INDICADORES
+# 📊 INDICADORES COM CARDS COLORIDOS
 # ============================================================
-st.subheader(f"📊 Registros: {len(df_f):,}")
+st.markdown(f"### 📊 Visão Geral · {len(df_f)} registros")
+
+# Cálculos
+total_notas = df_f[col_nota].nunique() if col_nota else 0
+qtd_total = df_f[col_qtd].apply(converter_quantidade_inteira).sum() if col_qtd else 0
+custo_total = df_f[col_custo].apply(converter_custo).sum() if col_custo else 0
+total_registros = len(df_f)
+concluidas = df_f[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum() if col_apq else 0
+perc_apq = (concluidas / total_registros * 100) if total_registros > 0 else 0
+
+# Cards em linha
 c1, c2, c3, c4 = st.columns(4)
 
-# ✅ 1. Total de Notas Únicas
 with c1:
-    total_notas = df_f[col_nota].nunique() if col_nota else 0
-    st.metric("📋 Notas Únicas", f"{total_notas:,}")
+    st.markdown(f"""
+    <div class="metric-card notas">
+        <div class="metric-label">📋 Notas Únicas</div>
+        <div class="metric-value">{total_notas:,}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ✅ 2. Quantidade Total (INTEIRA)
 with c2:
-    if col_qtd:
-        qtd_total = df_f[col_qtd].apply(converter_quantidade_inteira).sum()
-        st.metric("📦 Quantidade", f"{int(qtd_total):,}")  # Inteiro
-    else:
-        st.metric("📦 Quantidade", "N/D")
+    st.markdown(f"""
+    <div class="metric-card qtd">
+        <div class="metric-label">📦 Quantidade Total</div>
+        <div class="metric-value">{int(qtd_total):,}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ✅ 3. Custo Total
 with c3:
-    if col_custo:
-        custo_total = df_f[col_custo].apply(converter_custo).sum()
-        st.metric("💰 Custo Total", f"R$ {custo_total:,.2f}")
-    else:
-        st.metric("💰 Custo Total", "N/D")
+    st.markdown(f"""
+    <div class="metric-card custo">
+        <div class="metric-label">💰 Custo Total</div>
+        <div class="metric-value">R$ {custo_total:,.2f}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ✅ 4. APQ Concluídas
 with c4:
-    if col_apq:
-        concluidas = df_f[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum()
-        st.metric("✅ APQ", f"{concluidas:,} / {len(df_f):,}")
-    else:
-        st.metric("✅ APQ", "N/D")
+    st.markdown(f"""
+    <div class="metric-card apq">
+        <div class="metric-label">✅ APQ Concluídas</div>
+        <div class="metric-value">{concluidas} / {total_registros}</div>
+        <div style="font-size:0.85rem; color:#6b7280;">{perc_apq:.1f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.divider()
 
 # ============================================================
-# TABELA
+# 📋 TABELA
 # ============================================================
 cols_exibir = [c for c in df_f.columns if c not in ["__dt__", "__ano__", "__mes__"]]
 df_edit = df_f[cols_exibir].copy()
@@ -368,26 +402,33 @@ cfg = {}
 if col_apq:
     cfg[col_apq] = st.column_config.SelectboxColumn("APQ", options=["Pendente", "Concluída"], required=True)
 if col_qtd:
-    cfg[col_qtd] = st.column_config.NumberColumn("QUANTIDADE", format="%d")  # ✅ Mostra como inteiro
+    cfg[col_qtd] = st.column_config.NumberColumn("QUANTIDADE", format="%d", min_value=0)
+if col_custo:
+    cfg[col_custo] = st.column_config.NumberColumn("CUSTO REFUGO", format="R$ %.2f")
 
-df_salvo = st.data_editor(
-    df_edit, use_container_width=True, hide_index=True, num_rows="fixed",
-    column_config=cfg, key="tabela"
-)
-
-if st.button("💾 Salvar Alterações", type="primary"):
+# Botão salvar acima da tabela
+if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
     try:
-        if "rowid" not in df_salvo.columns: raise ValueError("Reimporte.")
-        conn = get_connection()
-        for _, linha in df_salvo.iterrows():
-            rid = int(linha["rowid"])
-            obs = str(linha.get(col_obs, "")).strip() if col_obs else ""
-            acao = str(linha.get(col_acao, "")).strip() if col_acao else ""
-            colab = str(linha.get(col_colab, "")).strip() if col_colab else ""
-            apq = str(linha.get(col_apq, "Pendente")).strip() if col_apq else "Pendente"
-            conn.execute(f'UPDATE "{TABLE_NAME}" SET "Observações"=?, "Ação"=?, "Colaborador"=?, "APQ"=? WHERE rowid=?',
-                (obs, acao, colab, apq, rid))
-        conn.commit(); conn.close()
-        st.success("✅ Salvo!"); st.rerun()
+        if "rowid" not in df_edit.columns:
+            st.warning("⚠️ Reimporte os dados para poder salvar alterações.")
+        else:
+            conn = get_connection()
+            for _, linha in df_edit.iterrows():
+                rid = int(linha["rowid"])
+                obs = str(linha.get(col_obs, "")).strip() if col_obs else ""
+                acao = str(linha.get(col_acao, "")).strip() if col_acao else ""
+                colab = str(linha.get(col_colab, "")).strip() if col_colab else ""
+                apq = str(linha.get(col_apq, "Pendente")).strip() if col_apq else "Pendente"
+                conn.execute(f'UPDATE "{TABLE_NAME}" SET "Observações"=?, "Ação"=?, "Colaborador"=?, "APQ"=? WHERE rowid=?',
+                    (obs, acao, colab, apq, rid))
+            conn.commit()
+            conn.close()
+            st.success("✅ Alterações salvas com sucesso!")
+            st.rerun()
     except Exception as e:
-        st.error(f"❌ {e}")
+        st.error(f"❌ Erro ao salvar: {e}")
+
+st.data_editor(
+    df_edit, use_container_width=True, hide_index=True, num_rows="fixed",
+    column_config=cfg, key="tabela", height=500
+)
