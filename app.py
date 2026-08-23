@@ -5,6 +5,28 @@ from pathlib import Path
 from datetime import datetime, date
 from io import BytesIO
 import re
+import json
+
+# ============================================================
+# 📁 ARQUIVO DE PREFERÊNCIAS (SALVA ESCOLHA DAS COLUNAS)
+# ============================================================
+PREFS_FILE = Path(".preferencias_dashboard.json")
+
+def carregar_preferencias():
+    if PREFS_FILE.exists():
+        try:
+            with open(PREFS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def salvar_preferencias(prefs):
+    try:
+        with open(PREFS_FILE, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, ensure_ascii=False, indent=2)
+    except:
+        pass
 
 # ============================================================
 # CONFIGURAÇÃO INICIAL
@@ -94,10 +116,9 @@ def formatar_data_br(valor):
     return s
 
 def converter_quantidade_inteira(valor):
-    """Converte o valor da coluna Quantidade para número inteiro"""
     if pd.isna(valor) or str(valor).strip() == "": return 0
     s = str(valor).strip().replace(" ", "").replace(".", "").replace(",", "")
-    s = re.sub(r'\..*$', '', s)  # Remove parte decimal
+    s = re.sub(r'\..*$', '', s)
     try: return int(float(s))
     except: return 0
 
@@ -126,7 +147,6 @@ def table_exists():
     finally: conn.close()
 
 def find_column(df, termos):
-    """Encontra coluna ignorando maiúsculas/minúsculas e acentos"""
     for t in termos:
         t = t.lower().strip()
         for c in df.columns:
@@ -235,8 +255,10 @@ def salvar_dados(df_novo):
     return len(df_novo), novas
 
 # ============================================================
-# 📂 BARRA LATERAL — FILTRO TURNO CORRIGIDO
+# 📂 BARRA LATERAL + SELEÇÃO DE COLUNAS (COM PERSISTÊNCIA)
 # ============================================================
+prefs = carregar_preferencias()
+
 with st.sidebar:
     st.header("📂 Importar Dados")
     arq = st.file_uploader("Selecione a Planilha", type=["xlsx", "xlsm", "xls"], label_visibility="collapsed")
@@ -282,6 +304,27 @@ with st.sidebar:
         opcoes_turno = ["Todos"] + turnos_unicos
         f_turno = st.selectbox("⏰ Turno", opcoes_turno)
 
+    # ✅ ESCOLHA DE COLUNAS — SALVA AUTOMATICAMENTE
+    st.divider()
+    st.header("👁️ Colunas Visíveis")
+    
+    colunas_existentes = [c for c in df_temp.columns if not c.startswith("__")] if not df_temp.empty else []
+    colunas_salvas = prefs.get("colunas_visiveis", colunas_existentes)
+    colunas_salvas = [c for c in colunas_salvas if c in colunas_existentes]  # Remove colunas antigas/invalidas
+    
+    escolha_colunas = st.multiselect(
+        "Escolha quais colunas ver:",
+        options=colunas_existentes,
+        default=colunas_salvas,
+        key="seletor_colunas"
+    )
+    
+    # Salva automaticamente quando muda a escolha
+    if escolha_colunas != colunas_salvas:
+        prefs["colunas_visiveis"] = escolha_colunas
+        salvar_preferencias(prefs)
+        st.toast("✅ Preferência salva!")
+
 # ============================================================
 # CARREGAR DADOS
 # ============================================================
@@ -321,15 +364,14 @@ if f_mes != "Todos":
     df_f = df_f[df_f["__mes__"].astype(str) == f_mes]
 
 # ============================================================
-# 📊 VISÃO GERAL — TOTAL DE REFUGOS (soma da coluna Quantidade)
+# 📊 VISÃO GERAL — TOTAL DE REFUGOS
 # ============================================================
 st.markdown(f"### 📊 Visão Geral · {len(df_f)} registros")
 
-# ✅ Soma da coluna Quantidade convertida para inteiro
 total_refugos = 0
 if col_qtd:
     total_refugos = df_f[col_qtd].apply(converter_quantidade_inteira).sum()
-    total_refugos = int(total_refugos)  # Garante inteiro
+    total_refugos = int(total_refugos)
 
 custo_total = df_f[col_custo].apply(converter_custo).sum() if col_custo else 0.0
 
@@ -354,17 +396,23 @@ with c2:
 st.divider()
 
 # ============================================================
-# 📋 TABELA
+# 📋 TABELA — USA APENAS AS COLUNAS ESCOLHIDAS
 # ============================================================
-colunas_exibir = [c for c in df_f.columns if not c.startswith("__")]
+# Usa preferência salva ou todas se não houver escolha
+colunas_exibir = escolha_colunas if escolha_colunas else [c for c in df_f.columns if not c.startswith("__")]
+
+# Garante que rowid fica visível para edição
+if "rowid" in df_f.columns and "rowid" not in colunas_exibir:
+    colunas_exibir = ["rowid"] + colunas_exibir
+
 df_edit = df_f[colunas_exibir].copy()
 
 cfg = {}
-if col_apq:
+if col_apq and col_apq in colunas_exibir:
     cfg[col_apq] = st.column_config.SelectboxColumn("APQ", options=["Pendente", "Concluída"], required=True)
-if col_qtd:
+if col_qtd and col_qtd in colunas_exibir:
     cfg[col_qtd] = st.column_config.NumberColumn("QUANTIDADE", format="%d", min_value=0)
-if col_custo:
+if col_custo and col_custo in colunas_exibir:
     cfg[col_custo] = st.column_config.NumberColumn("CUSTO REFUGO", format="R$ %.2f")
 
 if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
