@@ -134,7 +134,7 @@ if not df.empty:
     col_causa = encontra_coluna(['causa'])
     col_texto_causa = encontra_coluna(['texto da causa'])
     col_custo = encontra_coluna(['custo'])
-    col_obs = encontra_coluna(['observaçao', 'observacao'])
+    col_obs = encontra_coluna(['observaçao', 'observacao', 'informacoes', 'informações'])
     col_acao = encontra_coluna(['ação', 'acao'])
     col_colab = encontra_coluna(['colaborador', 'colcaborador'])
     col_prep = encontra_coluna(['preparador'])
@@ -188,7 +188,7 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # Mapeamento para renomear e ordenar exatamente como solicitado
+    # Mapeamento exato garantindo a ordem: Custo -> Informações (Observação) -> Ação -> Colaborador -> Preparador
     mapeamento_colunas = {
         col_secao: "seção",
         col_defeito: "defeito",
@@ -203,7 +203,7 @@ if not df.empty:
         col_causa: "causa",
         col_texto_causa: "texto da causa",
         col_custo: "custo",
-        col_obs: "observação",
+        col_obs: "informações",
         col_acao: "ação",
         col_colab: "colaborador",
         col_prep: "preparador"
