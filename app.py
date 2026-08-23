@@ -12,7 +12,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
 DB_PATH = Path("refugos_weg.db")
 TABLE_NAME = "tabela_notas"
 
@@ -27,7 +26,6 @@ st.markdown("""
     padding-right: 2rem !important;
     max-width: 100% !important;
 }
-
 .header-container {
     position: relative;
     background-image:
@@ -44,20 +42,17 @@ st.markdown("""
     margin-bottom: 20px;
     box-shadow: 0 4px 6px rgba(0,0,0,.3);
 }
-
 .header-title {
     font-size: 2.2rem;
     font-weight: 700;
     margin: 0;
     color: #fff;
 }
-
 .header-subtitle {
     font-size: 1rem;
     color: #94a3b8;
     margin-top: 5px;
 }
-
 [data-testid="collapsedControl"] {
     position: fixed !important;
     top: 15px !important;
@@ -67,12 +62,10 @@ st.markdown("""
     border-radius: 5px;
     color: white !important;
 }
-
 [data-testid="collapsedControl"] svg {
     fill: white !important;
 }
 </style>
-
 <div class="header-container">
     <div class="header-title">⚙️ Dashboard de Refugos - WEG UFE</div>
     <div class="header-subtitle">
@@ -81,7 +74,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-
 # ============================================================
 # BANCO DE DADOS
 # ============================================================
@@ -89,7 +81,6 @@ def get_connection():
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
-
 
 def table_exists():
     conn = get_connection()
@@ -102,11 +93,9 @@ def table_exists():
     finally:
         conn.close()
 
-
 def load_data():
     if not table_exists():
         return pd.DataFrame()
-
     conn = get_connection()
     try:
         return pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
@@ -114,7 +103,6 @@ def load_data():
         return pd.DataFrame()
     finally:
         conn.close()
-
 
 # ============================================================
 # UTILITÁRIOS
@@ -127,34 +115,24 @@ def normalize_columns(df):
     ]
     return df
 
-
 def find_column(df, terms):
     for term in terms:
-        term = term.lower()
+        term = term.lower().strip()
         for col in df.columns:
-            if term in str(col).lower():
+            col_lower = str(col).lower().strip()
+            if term in col_lower:
                 return col
     return None
-
 
 def ensure_column(df, column_name, default=""):
     if column_name not in df.columns:
         df[column_name] = default
     return column_name
 
-
 def parse_date_series(series):
-    """
-    Tenta interpretar datas vindas de Excel/SAP.
-    Aceita datas reais, dd/mm/yyyy, dd.mm.yyyy e outros formatos
-    reconhecidos pelo pandas.
-    """
     if pd.api.types.is_datetime64_any_dtype(series):
         return pd.to_datetime(series, errors="coerce")
-
     result = pd.to_datetime(series, errors="coerce", dayfirst=True)
-
-    # Segunda tentativa para valores que possam ter vindo como string
     mask = result.isna()
     if mask.any():
         result.loc[mask] = pd.to_datetime(
@@ -162,26 +140,31 @@ def parse_date_series(series):
             errors="coerce",
             dayfirst=True,
         )
-
     return result
 
-
 def safe_identifier(name):
-    """
-    Valida identificadores SQL para impedir que nomes inesperados de
-    colunas sejam inseridos diretamente no SQL.
-    """
     name = str(name)
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ")
     if not name or any(ch not in allowed for ch in name):
         raise ValueError(f"Nome de coluna inválido: {name}")
     return '"' + name.replace('"', '""') + '"'
 
+def parse_valor_numerico(valor):
+    if pd.isna(valor) or str(valor).strip() == "":
+        return 0
+    s = str(valor).strip().replace("R$", "").replace(" ", "")
+    s = s.replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except:
+        return 0
 
+# ============================================================
+# MAPEAMENTO DAS 19 COLUNAS — ORDEM EXATA
+# ============================================================
 def prepare_dataframe(df):
     df = normalize_columns(df)
 
-    # Campos utilizados pelo Dashboard
     col_obs = find_column(df, ["observaçao", "observacao", "informacoes", "informações"])
     col_acao = find_column(df, ["ação", "acao"])
     col_colab = find_column(df, ["colaborador", "colcaborador"])
@@ -212,17 +195,9 @@ def prepare_dataframe(df):
         "turno": find_column(df, ["turno"]),
         "material": find_column(df, ["material"]),
         "desc_mat": find_column(df, ["descrição do material", "descricao do material"]),
-        "ct": find_column(df, ["ct causador"]),
+        "ct": find_column(df, ["ct causador", "ct"]),
         "qtd": find_column(df, ["quantidade"]),
-        "desc_feito": find_column(
-            df,
-            [
-                "descrição do feito",
-                "descricao do feito",
-                "descrição do defeito",
-                "descricao do defeito",
-            ],
-        ),
+        "desc_feito": find_column(df, ["descrição do defeito", "descricao do defeito"]),
         "causa": find_column(df, ["causa"]),
         "texto_causa": find_column(df, ["texto da causa"]),
         "custo": find_column(df, ["custo"]),
@@ -231,105 +206,139 @@ def prepare_dataframe(df):
         "colab": col_colab,
         "prep": find_column(df, ["preparador"]),
         "apq": col_apq,
+        "twtp": find_column(df, ["twtp", "twttp"]),
     }
 
-
+# ============================================================
+# IMPORTAÇÃO DE ARQUIVO
+# ============================================================
 def import_excel(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower()
-
     if suffix == ".xls":
-        # xlrd é necessário para arquivos XLS antigos.
         return pd.read_excel(uploaded_file, sheet_name="Notas")
-
-    return pd.read_excel(
-        uploaded_file,
-        sheet_name="Notas",
-        engine="openpyxl",
-    )
-
-
-def save_imported_dataframe(df):
-    conn = get_connection()
-    try:
-        df.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
-        conn.commit()
-    finally:
-        conn.close()
-
+    return pd.read_excel(uploaded_file, sheet_name="Notas", engine="openpyxl")
 
 # ============================================================
-# MENU LATERAL
+# 💾 SALVAR — ADICIONA/ATUALIZA, NÃO DUPLICA NOTAS
+# ============================================================
+def save_imported_dataframe(df_novo):
+    conn = get_connection()
+    col_nota_novo = find_column(df_novo, ["nota"])
+
+    if not col_nota_novo:
+        raise ValueError("Coluna 'Nota' não encontrada no arquivo.")
+
+    df_novo[col_nota_novo] = df_novo[col_nota_novo].astype(str).str.strip()
+    notas_novas = set(df_novo[col_nota_novo].unique())
+
+    linhas_novas = 0
+    linhas_atualizadas = 0
+    linhas_excluidas = 0
+    notas_sumiram = []
+
+    if table_exists():
+        df_antigo = pd.read_sql(f'SELECT * FROM "{TABLE_NAME}"', conn)
+        col_nota_antigo = find_column(df_antigo, ["nota"])
+
+        if col_nota_antigo:
+            df_antigo[col_nota_antigo] = df_antigo[col_nota_antigo].astype(str).str.strip()
+            notas_antigas = set(df_antigo[col_nota_antigo].unique())
+
+            notas_sumiram = sorted(notas_antigas - notas_novas)
+            linhas_excluidas = len(notas_sumiram)
+
+            for _, linha in df_novo.iterrows():
+                nota = linha[col_nota_novo]
+                if nota in df_antigo[col_nota_antigo].values:
+                    linhas_atualizadas += 1
+                else:
+                    linhas_novas += 1
+
+            df_final = pd.concat([df_novo, df_antigo]).drop_duplicates(
+                subset=col_nota_novo, keep="first"
+            )
+        else:
+            df_final = df_novo
+            linhas_novas = len(df_novo)
+    else:
+        df_final = df_novo
+        linhas_novas = len(df_novo)
+
+    df_final.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
+    conn.commit()
+    conn.close()
+
+    return linhas_novas, linhas_atualizadas, linhas_excluidas, notas_sumiram
+
+# ============================================================
+# 📂 MENU LATERAL
 # ============================================================
 with st.sidebar:
     st.header("🛠️ Menu de Opções")
-
     with st.expander("📂 Importar e Gerenciar Dados", expanded=False):
         uploaded_file = st.file_uploader(
             "Enviar Planilha (.xlsx, .xlsm, .xls)",
             type=["xlsx", "xls", "xlsm"],
         )
-
         if uploaded_file is not None:
             if st.button("📥 Importar Aba 'Notas'", type="primary"):
                 try:
                     df_novo = import_excel(uploaded_file)
-
                     if df_novo.empty:
-                        st.warning("A aba 'Notas' está vazia.")
+                        st.warning("⚠️ A aba 'Notas' está vazia.")
                     else:
                         df_novo = normalize_columns(df_novo)
-                        save_imported_dataframe(df_novo)
-                        st.success(
-                            f"✅ {len(df_novo):,} registros importados com sucesso."
-                        )
-                        st.rerun()
+                        novas, atualizadas, excluidas, lista_excluir = save_imported_dataframe(df_novo)
 
+                        st.success(f"✅ Importação concluída!")
+                        st.info(f"🆕 Notas novas: {novas}  |  🔄 Atualizadas: {atualizadas}")
+
+                        if excluidas > 0:
+                            st.warning(
+                                f"⚠️ {excluidas} Nota(s) NÃO estão no arquivo novo:\n" +
+                                "\n".join([f"• {n}" for n in lista_excluir[:10]]) +
+                                ("\n... e mais" if excluidas > 10 else "") +
+                                "\n\nℹ️ Mantidas no banco. Exclua manualmente se necessário."
+                            )
+                        st.rerun()
                 except ImportError:
-                    st.error(
-                        "Para arquivos .xls antigos, instale o pacote 'xlrd'."
-                    )
+                    st.error("Para arquivos .xls antigos, instale: pip install xlrd")
                 except ValueError as e:
                     st.error(f"Erro na planilha: {e}")
                 except Exception as e:
-                    st.error(f"Erro ao importar a aba 'Notas': {e}")
+                    st.error(f"Erro ao importar: {e}")
 
     with st.expander("📄 Gerar Relatórios", expanded=False):
-        st.info(
-            "A estrutura está preparada para receber os módulos de PDF, "
-            "gráficos e relatório executivo."
-        )
+        st.info("Módulo de relatórios em desenvolvimento.")
         st.button("Gerar PDF com Gráficos", disabled=True)
-        st.button("Gerar PDF para Reunião de Turno", disabled=True)
+        st.button("Gerar PDF para Reunião", disabled=True)
 
     st.divider()
-
     st.subheader("🔍 Filtros de Análise")
 
-
 # ============================================================
-# CARREGAMENTO
+# CARREGAMENTO DOS DADOS
 # ============================================================
 df = load_data()
-
 if df.empty:
     st.warning(
-        "⚠️ O banco de dados está vazio. "
-        "Abra o menu no canto superior direito, entre em "
-        "'📂 Importar e Gerenciar Dados' e envie a planilha."
+        "⚠️ O banco de dados está vazio. Abra o menu no canto superior direito → "
+        "'📂 Importar e Gerenciar Dados' → envie sua planilha (aba 'Notas')."
     )
     st.stop()
 
-df, columns = prepare_dataframe(df)
+df, cols = prepare_dataframe(df)
 
-col_secao = columns["secao"]
-col_nota = columns["nota"]
-col_data = columns["data"]
-col_turno = columns["turno"]
-col_colab = columns["colab"]
-col_obs = columns["obs"]
-col_acao = columns["acao"]
-col_apq = columns["apq"]
-
+col_nota = cols["nota"]
+col_data = cols["data"]
+col_secao = cols["secao"]
+col_turno = cols["turno"]
+col_qtd = cols["qtd"]
+col_custo = cols["custo"]
+col_colab = cols["colab"]
+col_obs = cols["obs"]
+col_acao = cols["acao"]
+col_apq = cols["apq"]
 
 # ============================================================
 # TRATAMENTO DE DATA
@@ -339,283 +348,161 @@ if col_data:
     df["__ano__"] = df[col_data].dt.year.astype("Int64")
     df["__mes__"] = df[col_data].dt.month.astype("Int64")
 
-
 # ============================================================
 # FILTROS
 # ============================================================
 with st.sidebar:
     pesquisa_nota = st.text_input("Pesquisar Nota:")
 
-    secoes = (
-        ["Todas"]
-        + sorted(
-            df[col_secao].dropna().astype(str).str.strip().unique().tolist()
-        )
-        if col_secao
-        else ["Todas"]
-    )
+    secoes = ["Todas"] + sorted(df[col_secao].dropna().astype(str).str.strip().unique().tolist()) if col_secao else ["Todas"]
     filtro_secao = st.selectbox("Seção", secoes)
 
-    turnos = (
-        ["Todos"]
-        + sorted(
-            df[col_turno].dropna().astype(str).str.strip().unique().tolist()
-        )
-        if col_turno
-        else ["Todos"]
-    )
+    turnos = ["Todos"] + sorted(df[col_turno].dropna().astype(str).str.strip().unique().tolist()) if col_turno else ["Todos"]
     filtro_turno = st.selectbox("Turno", turnos)
 
-    if col_data:
-        meses = (
-            ["Todos"]
-            + [
-                str(int(x))
-                for x in sorted(df["__mes__"].dropna().unique())
-            ]
-        )
+    filtro_mes, filtro_ano = "Todos", "Todos"
+    if col_data and not df["__mes__"].dropna().empty:
+        meses = ["Todos"] + sorted([str(int(x)) for x in df["__mes__"].dropna().unique()])
         filtro_mes = st.selectbox("Mês", meses)
-
-        anos = (
-            ["Todos"]
-            + [
-                str(int(x))
-                for x in sorted(df["__ano__"].dropna().unique())
-            ]
-        )
+        anos = ["Todos"] + sorted([str(int(x)) for x in df["__ano__"].dropna().unique()])
         filtro_ano = st.selectbox("Ano", anos)
-    else:
-        filtro_mes = "Todos"
-        filtro_ano = "Todos"
 
-    colaboradores = (
-        ["Todos"]
-        + sorted(
-            df[col_colab].dropna().astype(str).str.strip().unique().tolist()
-        )
-        if col_colab
-        else ["Todos"]
-    )
+    colaboradores = ["Todos"] + sorted(df[col_colab].dropna().astype(str).str.strip().unique().tolist()) if col_colab else ["Todos"]
     filtro_colab = st.selectbox("Colaborador", colaboradores)
 
+    data_ini, data_fim = None, None
     if col_data and not df[col_data].dropna().empty:
-        st.write("Período de Data:")
-
         min_d = df[col_data].min().date()
         max_d = df[col_data].max().date()
-
-        data_ini = st.date_input(
-            "Data Inicial",
-            value=min_d,
-            min_value=min_d,
-            max_value=max_d,
-        )
-
-        data_fim = st.date_input(
-            "Data Final",
-            value=max_d,
-            min_value=min_d,
-            max_value=max_d,
-        )
-
+        data_ini = st.date_input("Data Inicial", value=min_d, min_value=min_d, max_value=max_d)
+        data_fim = st.date_input("Data Final", value=max_d, min_value=min_d, max_value=max_d)
         if data_ini > data_fim:
-            st.error("A Data Inicial não pode ser maior que a Data Final.")
-
+            st.error("Data Inicial não pode ser maior que a Data Final.")
 
 # ============================================================
-# APLICAÇÃO DOS FILTROS
+# APLICA FILTROS
 # ============================================================
 df_filtrado = df.copy()
 
 if pesquisa_nota and col_nota:
-    df_filtrado = df_filtrado[
-        df_filtrado[col_nota]
-        .astype(str)
-        .str.contains(pesquisa_nota, case=False, na=False)
-    ]
-
+    df_filtrado = df_filtrado[df_filtrado[col_nota].astype(str).str.contains(pesquisa_nota, case=False, na=False)]
 if filtro_secao != "Todas" and col_secao:
-    df_filtrado = df_filtrado[
-        df_filtrado[col_secao].astype(str).str.strip() == filtro_secao
-    ]
-
+    df_filtrado = df_filtrado[df_filtrado[col_secao].astype(str).str.strip() == filtro_secao]
 if filtro_turno != "Todos" and col_turno:
-    df_filtrado = df_filtrado[
-        df_filtrado[col_turno].astype(str).str.strip() == filtro_turno
-    ]
-
+    df_filtrado = df_filtrado[df_filtrado[col_turno].astype(str).str.strip() == filtro_turno]
 if filtro_mes != "Todos" and "__mes__" in df_filtrado.columns:
-    df_filtrado = df_filtrado[
-        df_filtrado["__mes__"].astype("Int64").astype(str) == filtro_mes
-    ]
-
+    df_filtrado = df_filtrado[df_filtrado["__mes__"].astype(str) == filtro_mes]
 if filtro_ano != "Todos" and "__ano__" in df_filtrado.columns:
-    df_filtrado = df_filtrado[
-        df_filtrado["__ano__"].astype("Int64").astype(str) == filtro_ano
-    ]
-
+    df_filtrado = df_filtrado[df_filtrado["__ano__"].astype(str) == filtro_ano]
 if filtro_colab != "Todos" and col_colab:
+    df_filtrado = df_filtrado[df_filtrado[col_colab].astype(str).str.strip() == filtro_colab]
+if col_data and data_ini and data_fim and data_ini <= data_fim:
     df_filtrado = df_filtrado[
-        df_filtrado[col_colab].astype(str).str.strip() == filtro_colab
+        (df_filtrado[col_data].dt.date >= data_ini) &
+        (df_filtrado[col_data].dt.date <= data_fim)
     ]
 
-if (
-    col_data
-    and "data_ini" in locals()
-    and "data_fim" in locals()
-    and data_ini <= data_fim
-):
-    df_filtrado = df_filtrado[
-        (df_filtrado[col_data].dt.date >= data_ini)
-        & (df_filtrado[col_data].dt.date <= data_fim)
-    ]
-
-
 # ============================================================
-# INDICADORES RESUMIDOS
+# 📊 INDICADORES
 # ============================================================
-st.subheader(f"📊 Registros Encontrados ({len(df_filtrado):,})")
-
+st.subheader(f"📊 Registros Encontrados — {len(df_filtrado):,}")
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
-    st.metric("Registros", f"{len(df_filtrado):,}")
+    st.metric("📋 Total de Notas", f"{df_filtrado[col_nota].nunique(dropna=True):,}" if col_nota else "N/D")
 
 with c2:
-    if col_nota:
-        st.metric(
-            "Notas",
-            f"{df_filtrado[col_nota].nunique(dropna=True):,}",
-        )
+    if col_qtd:
+        qtd_total = df_filtrado[col_qtd].apply(parse_valor_numerico).sum()
+        st.metric("📦 Quantidade Refugada", f"{qtd_total:,.0f}")
     else:
-        st.metric("Notas", "N/D")
+        st.metric("📦 Quantidade", "N/D")
 
 with c3:
-    if col_apq:
-        concluidas = (
-            df_filtrado[col_apq].astype(str).str.lower().eq("concluída").sum()
-        )
-        st.metric("APQ Concluídas", f"{concluidas:,}")
+    if col_custo:
+        custo_total = df_filtrado[col_custo].apply(parse_valor_numerico).sum()
+        st.metric("💰 Custo Total", f"R$ {custo_total:,.2f}")
     else:
-        st.metric("APQ Concluídas", "N/D")
+        st.metric("💰 Custo Total", "N/D")
 
 with c4:
     if col_apq:
-        pendentes = (
-            df_filtrado[col_apq].astype(str).str.lower().eq("pendente").sum()
-        )
-        st.metric("APQ Pendentes", f"{pendentes:,}")
+        concluidas = df_filtrado[col_apq].astype(str).str.lower().eq("concluída").sum()
+        pendentes = df_filtrado[col_apq].astype(str).str.lower().eq("pendente").sum()
+        st.metric("✅ APQ Concluídas", f"{concluidas:,} / {concluidas + pendentes:,}")
     else:
-        st.metric("APQ Pendentes", "N/D")
-
+        st.metric("✅ APQ Concluídas", "N/D")
 
 # ============================================================
-# TABELA EDITÁVEL
+# ✏️ TABELA EDITÁVEL
 # ============================================================
-st.markdown(
-    "💡 **Edição:** altere diretamente **Observação**, **Ação**, "
-    "**Colaborador** e **APQ**. Depois clique em **Salvar Alterações**."
-)
+st.markdown("💡 **Edição direta:** altere Observação, Ação, Colaborador e APQ → clique em **Salvar Alterações**.")
 
-cols_para_exibir = [
-    c for c in df_filtrado.columns
-    if c not in ["__ano__", "__mes__"]
-]
+cols_exibir = [c for c in df_filtrado.columns if c not in ["__ano__", "__mes__"]]
+df_editar = df_filtrado[cols_exibir].copy()
 
-df_para_editar = df_filtrado[cols_para_exibir].copy()
-
-df_editado = st.data_editor(
-    df_para_editar,
+df_salvo = st.data_editor(
+    df_editar,
     use_container_width=True,
     hide_index=True,
     num_rows="fixed",
     column_config={
         col_apq: st.column_config.SelectboxColumn(
             "APQ (Status)",
-            help="Selecione o status de conclusão",
             options=["Concluída", "Pendente"],
             required=True,
         )
-    },
-    key="editor_tabela_refugos",
+    } if col_apq else {},
+    key="tabela_editor",
 )
 
-
 # ============================================================
-# SALVAR ALTERAÇÕES
+# 💾 SALVAR ALTERAÇÕES
 # ============================================================
 if st.button("💾 Salvar Alterações no Banco", type="primary"):
     try:
-        if "rowid" not in df_editado.columns:
-            raise ValueError("A coluna interna rowid não foi encontrada.")
+        if "rowid" not in df_salvo.columns:
+            raise ValueError("Coluna 'rowid' não encontrada. Reimporte os dados.")
 
         conn = get_connection()
+        for _, linha in df_salvo.iterrows():
+            rid = int(linha["rowid"])
+            obs_val = str(linha.get(col_obs, "")).strip()
+            acao_val = str(linha.get(col_acao, "")).strip()
+            colab_val = str(linha.get(col_colab, "")).strip()
+            apq_val = str(linha.get(col_apq, "Pendente")).strip()
 
-        for _, row in df_editado.iterrows():
-            row_id = int(row["rowid"])
-
-            valores = (
-                row.get(col_obs, ""),
-                row.get(col_acao, ""),
-                row.get(col_colab, ""),
-                row.get(col_apq, "Pendente"),
-                row_id,
-            )
-
-            sql = f"""
+            conn.execute(f"""
                 UPDATE {safe_identifier(TABLE_NAME)}
-                SET
-                    {safe_identifier(col_obs)} = ?,
+                SET {safe_identifier(col_obs)} = ?,
                     {safe_identifier(col_acao)} = ?,
                     {safe_identifier(col_colab)} = ?,
                     {safe_identifier(col_apq)} = ?
                 WHERE rowid = ?
-            """
-
-            conn.execute(sql, valores)
+            """, (obs_val, acao_val, colab_val, apq_val, rid))
 
         conn.commit()
         conn.close()
-
-        st.success("✅ Alterações salvas no banco de dados com sucesso!")
+        st.success("✅ Alterações salvas com sucesso!")
         st.rerun()
-
     except Exception as e:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-        st.error(f"❌ Erro ao salvar alterações: {e}")
-
+        st.error(f"❌ Erro ao salvar: {e}")
 
 # ============================================================
-# LIMPEZA DO BANCO
+# ⚠️ LIMPEZA DO BANCO
 # ============================================================
-st.divider()
-
 with st.sidebar:
+    st.divider()
     st.subheader("⚠️ Administração")
-
     if st.button("🗑️ Limpar Banco de Dados"):
-        st.warning(
-            "Esta operação apagará todos os registros da tabela importada."
-        )
-
-        if st.session_state.get("confirmar_limpeza", False):
+        if st.session_state.get("confirmar_limpar", False):
             conn = get_connection()
-            try:
-                conn.execute(f"DROP TABLE IF EXISTS {safe_identifier(TABLE_NAME)}")
-                conn.commit()
-            finally:
-                conn.close()
-
-            st.session_state["confirmar_limpeza"] = False
-            st.success("Banco de dados limpo.")
+            conn.execute(f"DROP TABLE IF EXISTS {safe_identifier(TABLE_NAME)}")
+            conn.commit()
+            conn.close()
+            st.session_state["confirmar_limpar"] = False
+            st.success("✅ Banco de dados apagado.")
             st.rerun()
         else:
-            st.session_state["confirmar_limpeza"] = True
-            st.rerun()
-
-    if st.session_state.get("confirmar_limpeza", False):
-        st.error("⚠️ Clique novamente para confirmar a limpeza definitiva.")
+            st.session_state["confirmar_limpar"] = True
+            st.warning("⚠️ Clique NOVAMENTE para confirmar a exclusão TOTAL dos dados.")
