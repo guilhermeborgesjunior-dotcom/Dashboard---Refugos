@@ -5,7 +5,7 @@ import sqlite3
 # Configuração da página (deve ser a primeira instrução)
 str_lit.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
-# Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
+# Estilos customizados (Fundo branco para tabela, texto escuro e container do cabeçalho)
 str_lit.markdown("""
     <style>
     .block-container {
@@ -55,18 +55,54 @@ str_lit.markdown("""
         fill: white !important;
     }
     
-    /* Estilos customizados para a interatividade da célula APQ no Front-end */
+    /* Estilos CSS para fundo branco e contraste na tabela */
+    .tabela-container-wrapper {
+        overflow-x: auto; 
+        max-height: 480px; 
+        border: 1px solid #cbd5e1; 
+        border-radius: 8px;
+        background-color: #ffffff;
+    }
+
+    #tabela-refugos {
+        width: 100%; 
+        border-collapse: collapse; 
+        font-family: sans-serif; 
+        font-size: 14px; 
+        color: #1e293b !important;
+        background-color: #ffffff !important;
+    }
+
+    #tabela-refugos thead tr {
+        background-color: #f1f5f9 !important; 
+        border-bottom: 2px solid #cbd5e1 !important; 
+        position: sticky; 
+        top: 0; 
+        z-index: 1;
+        color: #0f172a !important;
+    }
+
+    #tabela-refugos tbody tr {
+        border-bottom: 1px solid #e2e8f0 !important;
+        background-color: #ffffff !important;
+    }
+
+    #tabela-refugos tbody tr:hover {
+        background-color: #f8fafc !important;
+    }
+
+    /* Estilo interativo do APQ com cursor pointer obrigatório */
     .apq-toggle {
         font-weight: bold;
-        cursor: pointer;
+        cursor: pointer !important;
         padding: 4px 8px;
         border-radius: 4px;
         user-select: none;
-        transition: background 0.2s;
         display: inline-block;
+        transition: background 0.2s;
     }
     .apq-toggle:hover {
-        background-color: rgba(255, 255, 255, 0.08);
+        background-color: rgba(0, 0, 0, 0.05);
     }
     </style>
     
@@ -83,7 +119,7 @@ def init_db():
 
 init_db()
 
-# ==================== MENU LATERAL (OCULTO / HAMBÚRGUER DIREITO) ====================
+# ==================== MENU LATERAL ====================
 with str_lit.sidebar:
     str_lit.header("🛠️ Menu de Opções")
     
@@ -150,7 +186,6 @@ if not df.empty:
     col_prep = encontra_coluna(['preparador'])
     col_apq = encontra_coluna(['apq'])
 
-    # Garante a existência física das colunas no DataFrame
     if not col_obs and 'observacao' not in df.columns:
         df['observacao'] = ""
         col_obs = 'observacao'
@@ -199,25 +234,6 @@ if not df.empty:
         if s in ['', 'none', 'nan', 'undefined', 'null']:
             return True
         return False
-
-    # Tratamento opcional via query params para persistência no banco, se necessário
-    params_url = str_lit.query_params
-    if "toggle_apq_rowid" in params_url:
-        try:
-            r_id = int(params_url["toggle_apq_rowid"])
-            conn = sqlite3.connect('refugos_weg.db', timeout=10)
-            cursor = conn.cursor()
-            res = cursor.execute(f'SELECT "{col_apq}" FROM tabela_notas WHERE rowid = ?', (r_id,)).fetchone()
-            if res:
-                atual = str(res[0]).strip().lower()
-                novo_val = "Pendente" if atual in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true'] else "Concluída"
-                cursor.execute(f'UPDATE tabela_notas SET "{col_apq}" = ? WHERE rowid = ?', (novo_val, r_id))
-                conn.commit()
-            conn.close()
-            str_lit.query_params.clear()
-            str_lit.rerun()
-        except Exception:
-            pass
 
     # ==================== FILTROS NA BARRA LATERAL ====================
     with str_lit.sidebar:
@@ -274,9 +290,9 @@ if not df.empty:
             axis=1
         )
 
-    # ==================== EXIBIÇÃO DA TABELA HTML COM JAVASCRIPT DE TOGGLE INSTANTÂNEO ====================
+    # ==================== EXIBIÇÃO DA TABELA HTML (FUNDO BRANCO + APQ NO FIM + JS CLIQUE CORRIGIDO) ====================
     str_lit.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
-    str_lit.markdown("💡 **Instruções:** Clique diretamente na palavra **APQ** de qualquer linha para alternar instantaneamente entre **Vermelho (Pendente)** e **Verde (Concluído)**.")
+    str_lit.markdown("💡 **Instruções:** Clique na palavra **APQ** para alternar instantaneamente entre **Vermelho (Pendente)** e **Verde (Concluído)**.")
 
     # Mapeamento com APQ estritamente na ÚLTIMA posição
     mapeamento_colunas = {
@@ -297,14 +313,14 @@ if not df.empty:
         col_acao: "Ação",
         col_colab: "Colaborador",
         col_prep: "Preparador",
-        col_apq: "APQ"  # Posicionada no fim -> Última coluna da tabela
+        col_apq: "APQ"  # Posição final da tabela
     }
 
     html_tabela = """
-    <div style="overflow-x: auto; max-height: 480px; border: 1px solid #334155; border-radius: 8px;">
-    <table id="tabela-refugos" style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #f8fafc; background-color: #0f172a;">
+    <div class="tabela-container-wrapper">
+    <table id="tabela-refugos">
       <thead>
-        <tr style="background-color: #1e293b; border-bottom: 2px solid #334155; position: sticky; top: 0; z-index: 1;">
+        <tr>
     """
     
     colunas_validas = [k for k in mapeamento_colunas.keys() if k is not None]
@@ -316,7 +332,7 @@ if not df.empty:
 
     for idx, row in df_filtrado.iterrows():
         r_id = row['rowid']
-        html_tabela += f'<tr style="border-bottom: 1px solid #1e293b;" onclick="selecionarLinha(this)">'
+        html_tabela += f'<tr onclick="selecionarLinha(this)">'
         
         for k in colunas_validas:
             if k == col_nota:
@@ -324,8 +340,7 @@ if not df.empty:
             elif k == col_apq:
                 raw_apq = str(row[k]).strip().lower()
                 is_concluida = raw_apq in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true']
-                # Estado inicial baseado no banco (Vermelho #ff4d4d para pendente, Verde #2ecc71 para concluído)
-                cor_inicial = "#2ecc71" if is_concluida else "#ff4d4d"
+                cor_inicial = "#27ae60" if is_concluida else "#e74c3c"
                 status_inicial = "concluido" if is_concluida else "pendente"
                 
                 val = f'<span class="apq-toggle" data-status="{status_inicial}" style="color: {cor_inicial};">APQ</span>'
@@ -348,30 +363,25 @@ if not df.empty:
         for (var i = 0; i < rows.length; i++) {
             rows[i].style.backgroundColor = '';
         }
-        tr.style.backgroundColor = '#1e293b';
+        tr.style.backgroundColor = '#f1f5f9';
     }
 
-    // Script DOM para interatividade de clique único instantâneo (Vermelho <-> Verde)
-    document.addEventListener("DOMContentLoaded", function() {
-        const apqElements = document.querySelectorAll('.apq-toggle');
+    // Delegação de eventos robusta para troca imediata de vermelho <-> verde via clique
+    document.addEventListener("click", function(event) {
+        if (event.target && event.target.classList.contains("apq-toggle")) {
+            event.stopPropagation(); // Evita conflito com a seleção de linha
+            
+            const el = event.target;
+            const statusAtual = el.getAttribute("data-status");
 
-        apqElements.forEach(el => {
-            el.addEventListener('click', function(event) {
-                event.stopPropagation(); // Impede propagação para a linha
-                
-                const statusAtual = el.getAttribute('data-status');
-
-                if (statusAtual === 'pendente') {
-                    // Muda para Verde (Concluído)
-                    el.style.color = '#2ecc71';
-                    el.setAttribute('data-status', 'concluido');
-                } else {
-                    // Muda para Vermelho (Pendente)
-                    el.style.color = '#ff4d4d';
-                    el.setAttribute('data-status', 'pendente');
-                }
-            });
-        });
+            if (statusAtual === "pendente") {
+                el.style.color = "#27ae60"; // Verde concluído
+                el.setAttribute("data-status", "concluido");
+            } else {
+                el.style.color = "#e74c3c"; // Vermelho pendente
+                el.setAttribute("data-status", "pendente");
+            }
+        }
     });
     </script>
     """
