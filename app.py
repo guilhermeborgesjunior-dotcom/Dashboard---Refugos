@@ -5,7 +5,7 @@ import sqlite3
 # Configuração da página (deve ser a primeira instrução)
 st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
-# Estilos customizados para largura total, cabeçalho, menu hamburger e status APQ
+# Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
 st.markdown("""
     <style>
     .block-container {
@@ -130,14 +130,13 @@ if not df.empty:
     col_texto_causa = encontra_coluna(['texto da causa'])
     col_custo = encontra_coluna(['custo'])
     
-    # Identificação das colunas de Observação e Ação/Colaborador/Preparador
     col_obs = encontra_coluna(['observaçao', 'observacao', 'informacoes', 'informações'])
     col_acao = encontra_coluna(['ação', 'acao'])
     col_colab = encontra_coluna(['colaborador', 'colcaborador'])
     col_prep = encontra_coluna(['preparador'])
     col_apq = encontra_coluna(['apq'])
 
-    # Garante a existência física das colunas no DataFrame para evitar erros de referência
+    # Garante a existência física das colunas no DataFrame
     if not col_obs and 'observacao' not in df.columns:
         df['observacao'] = ""
         col_obs = 'observacao'
@@ -151,13 +150,13 @@ if not df.empty:
         df['preparador'] = ""
         col_prep = 'preparador'
     if not col_apq and 'apq' not in df.columns:
-        df['apq'] = "Pendente"
+        df['apq'] = "🔴 Pendente"
         col_apq = 'apq'
     else:
-        # Padroniza valores vazios de APQ para Pendente
-        df[col_apq] = df[col_apq].fillna("Pendente").apply(lambda x: "Concluída" if str(x).strip().lower() in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true'] else "Pendente")
+        df[col_apq] = df[col_apq].fillna("🔴 Pendente").apply(
+            lambda x: "🟢 Concluída" if str(x).strip().lower() in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true', '🟢 concluída'] else "🔴 Pendente"
+        )
 
-    # Função auxiliar para formatar valores inteiros limpos (sem .0)
     def limpa_inteiro(val):
         if pd.notna(val):
             try:
@@ -166,7 +165,6 @@ if not df.empty:
                 return str(val)
         return ""
 
-    # Função auxiliar para formatar custo em Real
     def formata_custo(val):
         if pd.notna(val):
             try:
@@ -175,13 +173,11 @@ if not df.empty:
                 return str(val)
         return ""
 
-    # Função auxiliar para tratar valores de texto nulos/vazios na exibição da tabela
     def trata_nulos(val):
         if pd.isna(val) or val is None or str(val).strip().lower() in ['none', 'nan', 'undefined', 'null']:
             return ""
         return str(val)
 
-    # Função para verificar se a observação está vazia (considerando null, undefined, vazia ou apenas espaços)
     def obs_esta_vazia(val):
         if val is None or pd.isna(val):
             return True
@@ -239,7 +235,7 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # Inclusão do Alerta de Observação Ausente diretamente formatado no número da nota
+    # Coluna auxiliar para nota com alerta visual caso observação esteja vazia
     if col_nota:
         df_filtrado['__nota_com_alerta__'] = df_filtrado.apply(
             lambda row: f"⚠️ {limpa_inteiro(row[col_nota])}" if obs_esta_vazia(row[col_obs]) else limpa_inteiro(row[col_nota]),
@@ -355,7 +351,7 @@ if not df.empty:
     mapeamento_colunas = {
         col_secao: "seção",
         col_defeito: "defeito",
-        '__nota_com_alerta__': "nota",
+        col_nota: "__nota_com_alerta__",
         col_data: "data",
         col_turno: "turno",
         col_material: "material",
@@ -373,18 +369,26 @@ if not df.empty:
         col_prep: "Preparador"
     }
 
-    colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None and k != '__nota_com_alerta__']
-    if '__nota_com_alerta__' in df_filtrado.columns:
-        colunas_presentes[colunas_presentes.index(col_nota)] = '__nota_com_alerta__' if col_nota else '__nota_com_alerta__'
+    colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None and k != col_nota]
+    if col_nota:
+        colunas_presentes.insert(colunas_presentes.index(col_custo) if col_custo in colunas_presentes else 1, col_nota)
 
-    df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
+    df_exibicao = df_filtrado[['rowid'] + [c for c in mapeamento_colunas.keys() if c is not None]].copy()
+    
+    # Renomeia as colunas de acordo com o dicionário, tratando a coluna de nota com alerta
+    renomeador = {k: v for k, v in mapeamento_colunas.items() if k is not None}
+    if col_nota in renomeador:
+        renomeador[col_nota] = "nota"
+    df_exibicao = df_exibicao.rename(columns=renomeador)
+    
+    if col_nota and '__nota_com_alerta__' in df_filtrado.columns:
+        df_exibicao["nota"] = df_filtrado['__nota_com_alerta__']
 
-    # Aplicação de limpeza nos valores das colunas de texto para garantir células vazias sem "undefined"/"null"
+    # Limpeza de valores nulos nas colunas textuais
     for col_nome in ["Observação", "Ação", "Colaborador", "Preparador"]:
         if col_nome in df_exibicao.columns:
             df_exibicao[col_nome] = df_exibicao[col_nome].apply(trata_nulos)
 
-    # Tabela unificada interativa padrão com suporte a scroll horizontal automático nativo
     evento_tabela = st.dataframe(
         df_exibicao.drop(columns=['rowid']),
         use_container_width=True,
@@ -394,7 +398,6 @@ if not df.empty:
         on_select="rerun"
     )
 
-    # Gerenciamento de estado da seleção de linha única
     rowid_selecionado = None
     if evento_tabela and evento_tabela.selection.rows:
         linha_selecionada_idx = evento_tabela.selection.rows[0]
@@ -403,7 +406,6 @@ if not df.empty:
     elif 'rowid_selecionado' in st.session_state:
         rowid_selecionado = st.session_state['rowid_selecionado']
 
-    # Gerenciador interativo de clique na APQ via botões laterais por linha ou painel de controle
     if rowid_selecionado:
         st.divider()
         col_info_sel, col_btn_apq, col_btn_edit = st.columns([2, 1, 1])
@@ -420,12 +422,12 @@ if not df.empty:
         with col_btn_apq:
             if not nota_sel_obj.empty and col_apq:
                 status_atual_apq = str(nota_sel_obj.iloc[0][col_apq])
-                if status_atual_apq != "Concluída":
+                if "Pendente" in status_atual_apq:
                     if st.button("🟢 Concluir APQ", use_container_width=True):
                         try:
                             conn = sqlite3.connect('refugos_weg.db', timeout=10)
                             cursor = conn.cursor()
-                            cursor.execute(f'UPDATE tabela_notas SET "{col_apq}" = ? WHERE rowid = ?', ("Concluída", rowid_selecionado))
+                            cursor.execute(f'UPDATE tabela_notas SET "{col_apq}" = ? WHERE rowid = ?', ("🟢 Concluída", rowid_selecionado))
                             conn.commit()
                             conn.close()
                             st.success("APQ concluída com sucesso!")
@@ -439,7 +441,6 @@ if not df.empty:
             if st.button("✏️ Abrir Painel de Edição", type="primary", use_container_width=True):
                 modal_edicao(rowid_selecionado)
 
-    # Botão de limpeza do banco
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
         conn = sqlite3.connect('refugos_weg.db', timeout=10)
         conn.execute('DROP TABLE IF EXISTS tabela_notas')
