@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, date
 import traceback
+import numpy as np
 
 # ============================================================
 # CONFIGURAÇÃO
@@ -62,6 +63,16 @@ def remover_colunas_extras(df):
     cols = [c for c in df.columns if str(c).strip().lower() not in COLUNAS_IGNORAR]
     return df[cols]
 
+def converter_datas_para_texto(df):
+    """✅ Converte colunas Timestamp para string (compatível com SQLite)"""
+    df = df.copy()
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = df[col].dt.strftime("%Y-%m-%d").fillna("")
+        elif pd.api.types.is_timedelta64_dtype(df[col]):
+            df[col] = df[col].astype(str).fillna("")
+    return df
+
 def load_data():
     if not table_exists(): return pd.DataFrame()
     conn = get_connection()
@@ -108,27 +119,21 @@ def parse_valor_numerico(valor):
 # 📂 LEITURA ROBUSTA DO ARQUIVO
 # ============================================================
 def ler_arquivo_excel(arquivo_carregado):
-    """
-    Tenta várias formas de ler o arquivo Excel.
-    Se não encontrar a aba "Notas", lista as abas disponíveis.
-    """
     nome_arquivo = arquivo_carregado.name
     sufixo = Path(nome_arquivo).suffix.lower()
     
-    # Salva temporariamente para ler com mais opções
     import tempfile
     with tempfile.NamedTemporaryFile(delete=False, suffix=sufixo) as tmp:
         tmp.write(arquivo_carregado.getvalue())
         caminho_temp = tmp.name
     
     try:
-        # Tenta 1: openpyxl (padrão para xlsx/xlsm)
+        # Tenta 1: openpyxl
         try:
             xl = pd.ExcelFile(caminho_temp, engine="openpyxl")
             abas = xl.sheet_names
             st.info(f"📑 Abas encontradas: {', '.join(abas)}")
             
-            # Procura por "Notas" ou similar
             alvo = None
             for aba in abas:
                 if "nota" in aba.lower():
@@ -136,9 +141,7 @@ def ler_arquivo_excel(arquivo_carregado):
                     break
             
             if alvo is None:
-                raise ValueError(
-                    f"Aba 'Notas' não encontrada!\nAbas disponíveis: {', '.join(abas)}"
-                )
+                raise ValueError(f"Aba 'Notas' não encontrada!\nAbas disponíveis: {', '.join(abas)}")
             
             st.info(f"📖 Lendo aba: {alvo}")
             df = pd.read_excel(caminho_temp, sheet_name=alvo, engine="openpyxl")
@@ -147,7 +150,7 @@ def ler_arquivo_excel(arquivo_carregado):
         except Exception as e1:
             st.warning(f"Tentativa 1 falhou: {str(e1)[:100]}")
             
-            # Tenta 2: xlrd para arquivos antigos
+            # Tenta 2: xlrd
             if sufixo == ".xls":
                 try:
                     xl = pd.ExcelFile(caminho_temp, engine="xlrd")
@@ -167,36 +170,34 @@ def ler_arquivo_excel(arquivo_carregado):
                 except Exception as e2:
                     st.warning(f"Tentativa 2 falhou: {str(e2)[:100]}")
             
-            # Tenta 3: ler a PRIMEIRA aba automaticamente
+            # Tenta 3: primeira aba
             try:
-                st.info("📖 Tentando ler a PRIMEIRA aba do arquivo...")
+                st.info("📖 Tentando ler a PRIMEIRA aba...")
                 df = pd.read_excel(caminho_temp, sheet_name=0, engine="openpyxl")
                 st.success("✅ Leitura da primeira aba bem-sucedida!")
                 return df
             except Exception as e3:
                 raise RuntimeError(
                     f"Não foi possível ler o arquivo.\n"
-                    f"Erro final: {str(e3)}\n"
-                    f"Dica: Verifique se o arquivo não está protegido por senha ou corrompido."
+                    f"Erro: {str(e3)}\n"
+                    f"Dica: Verifique se o arquivo não está protegido por senha."
                 )
     finally:
-        # Limpa arquivo temporário
-        try:
-            Path(caminho_temp).unlink()
-        except:
-            pass
+        try: Path(caminho_temp).unlink()
+        except: pass
 
 # ============================================================
-# 💾 SALVAR DADOS
+# 💾 SALVAR DADOS — ✅ CORRIGIDO: converte datas antes de salvar
 # ============================================================
 def salvar_dados(df_novo):
     df_novo = remover_colunas_extras(df_novo)
+    df_novo = converter_datas_para_texto(df_novo)  # ✅ SOLUÇÃO DO ERRO!
+    
     col_nota = find_column(df_novo, ["nota"])
     
     if not col_nota:
-        # Mostra as colunas para ajudar a diagnosticar
         st.error("Coluna 'Nota' não encontrada!")
-        st.write("Colunas disponíveis no arquivo:")
+        st.write("Colunas disponíveis:")
         st.write(list(df_novo.columns))
         raise ValueError("Coluna 'Nota' não encontrada na planilha")
 
@@ -206,6 +207,8 @@ def salvar_dados(df_novo):
     if table_exists():
         df_antigo = pd.read_sql(f'SELECT * FROM "{TABLE_NAME}"', conn)
         df_antigo = remover_colunas_extras(df_antigo)
+        df_antigo = converter_datas_para_texto(df_antigo)  # ✅ Converte datas antigas também
+        
         col_nota_ant = find_column(df_antigo, ["nota"])
         if col_nota_ant:
             df_antigo[col_nota_ant] = df_antigo[col_nota_ant].astype(str).str.strip()
@@ -219,13 +222,16 @@ def salvar_dados(df_novo):
         df_final = df_novo
         novas = len(df_novo)
 
+    # ✅ Garante que NÃO tem Timestamp antes de salvar
+    df_final = converter_datas_para_texto(df_final)
+    
     df_final.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
     conn.commit()
     conn.close()
     return len(df_novo), novas
 
 # ============================================================
-# 📂 MENU LATERAL — IMPORTAÇÃO AUTOMÁTICA
+# 📂 MENU LATERAL
 # ============================================================
 with st.sidebar:
     st.header("🛠️ Menu de Opções")
@@ -235,7 +241,6 @@ with st.sidebar:
             type=["xlsx", "xlsm", "xls"]
         )
 
-        # ✅ LEITURA AUTOMÁTICA — SEM BOTÃO!
         if arq is not None:
             try:
                 st.info(f"📖 Processando: {arq.name}...")
