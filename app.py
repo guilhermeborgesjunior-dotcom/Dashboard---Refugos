@@ -1,333 +1,292 @@
-import streamlit as st
-import pandas as pd
-import datetime
-import plotly.express as px
-from io import BytesIO
-from supabase import create_client, Client
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-
-# ---------------------------------------------------------
-# Configuração da Página e Tema Limpo / Clean UI
-# ---------------------------------------------------------
-st.set_page_config(
-    page_title="Gestão de Refugos | Qualidade & Produção",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Estilização Profissional Personalizada
-st.markdown("""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Refugos - UFE</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- SheetJS (Leitor de Excel) -->
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
     <style>
-    /* Estilo Geral da Aplicação */
-    .stApp {
-        background-color: #F8FAFC;
-        color: #0F172A;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-    
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #FFFFFF;
-        border-right: 1px solid #E2E8F0;
-    }
-    
-    /* Cards de KPI Executivos */
-    .kpi-card {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 8px;
-        padding: 20px;
-        box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.05);
-        text-align: left;
-    }
-    .kpi-title {
-        color: #64748B;
-        font-size: 0.85rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 8px;
-    }
-    .kpi-value {
-        color: #0F172A;
-        font-size: 1.8rem;
-        font-weight: 700;
-        margin: 0;
-    }
-    .kpi-sub {
-        color: #10B981;
-        font-size: 0.8rem;
-        font-weight: 500;
-        margin-top: 4px;
-    }
-
-    /* Modificações nos componentes nativos do Streamlit */
-    div.stButton > button {
-        border-radius: 6px;
-        font-weight: 600;
-    }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
     </style>
-""", unsafe_allow_html=True)
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6">
 
-# ---------------------------------------------------------
-# Conexão com o Supabase
-# ---------------------------------------------------------
-url = st.secrets.get("SUPABASE_URL") or st.secrets.get("supabase", {}).get("SUPABASE_URL")
-key = st.secrets.get("SUPABASE_KEY") or st.secrets.get("supabase", {}).get("SUPABASE_KEY")
+    <!-- Cabeçalho -->
+    <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-slate-800 pb-4">
+        <div>
+            <h1 class="text-2xl font-bold flex items-center gap-2 text-white">
+                <i data-lucide="alert-triangle" class="text-amber-500"></i>
+                Dashboard Refugos - UFE
+            </h1>
+            <p class="text-slate-400 text-sm mt-1">Monitoramento de perdas operacionais e análise de causa raiz</p>
+        </div>
 
-if not url or not key:
-    st.error("⚠️ Configuração pendente: Chaves do Supabase não encontradas nos Secrets.")
-    st.stop()
+        <!-- Área de Importação de Arquivo -->
+        <div class="flex flex-wrap items-center gap-3 bg-slate-800 p-3 rounded-xl border border-slate-700">
+            <label class="flex items-center gap-2 text-sm font-medium text-slate-200 cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition">
+                <i data-lucide="upload" class="w-4 h-4"></i>
+                Importar Arquivo
+                <input type="file" id="fileInput" accept=".csv, .txt, .xlsx, .xls" class="hidden" />
+            </label>
+            <span id="fileName" class="text-xs text-slate-400 max-w-[180px] truncate">Nenhum arquivo selecionado</span>
+        </div>
+    </header>
 
-@st.cache_resource
-def init_supabase():
-    return create_client(url, key)
+    <!-- Cards de KPIs (Topo) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div class="bg-slate-800 border border-slate-700/60 p-5 rounded-xl shadow-lg">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+                <span class="text-sm font-medium">Total Refugado</span>
+                <i data-lucide="package-x" class="text-red-400 w-5 h-5"></i>
+            </div>
+            <div class="text-3xl font-bold text-white" id="kpiTotalRefugado">0 <span class="text-xs font-normal text-slate-400">pçs</span></div>
+            <p class="text-xs text-slate-400 mt-2">Volume total de peças perdidas</p>
+        </div>
 
-supabase: Client = init_supabase()
+        <div class="bg-slate-800 border border-slate-700/60 p-5 rounded-xl shadow-lg">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+                <span class="text-sm font-medium">Taxa de Refugo Geral</span>
+                <i data-lucide="percent" class="text-amber-400 w-5 h-5"></i>
+            </div>
+            <div class="text-3xl font-bold text-amber-400" id="kpiTaxaRefugo">0.0%</div>
+            <p class="text-xs text-slate-400 mt-2">Meta estipulada: <strong class="text-slate-200">1.5%</strong></p>
+        </div>
 
-# ---------------------------------------------------------
-# Funções de Dados (CRUD e Relatórios)
-# ---------------------------------------------------------
-@st.cache_data(ttl=30)
-def carregar_dados():
-    try:
-        response = supabase.table("refugos").select("*").execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
-            if "valor" in df.columns:
-                df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
-            if "quantidade" in df.columns:
-                df["quantidade"] = pd.to_numeric(df["quantidade"], errors="coerce").fillna(0)
-            return df
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Erro ao carregar dados do banco: {e}")
-        return pd.DataFrame()
+        <div class="bg-slate-800 border border-slate-700/60 p-5 rounded-xl shadow-lg">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+                <span class="text-sm font-medium">Custo Total do Refugo</span>
+                <i data-lucide="dollar-sign" class="text-emerald-400 w-5 h-5"></i>
+            </div>
+            <div class="text-3xl font-bold text-white" id="kpiCustoTotal">R$ 0,00</div>
+            <p class="text-xs text-slate-400 mt-2">Impacto financeiro acumulado</p>
+        </div>
 
-def gerar_pdf(df_filtrado):
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    elements = []
-    styles = getSampleStyleSheet()
+        <div class="bg-slate-800 border border-slate-700/60 p-5 rounded-xl shadow-lg">
+            <div class="flex items-center justify-between text-slate-400 mb-2">
+                <span class="text-sm font-medium">Total Produzido</span>
+                <i data-lucide="cpu" class="text-blue-400 w-5 h-5"></i>
+            </div>
+            <div class="text-3xl font-bold text-white" id="kpiTotalProduzido">0 <span class="text-xs font-normal text-slate-400">pçs</span></div>
+            <p class="text-xs text-slate-400 mt-2">Volume de produção processado</p>
+        </div>
+    </div>
 
-    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0F172A'), fontName='Helvetica-Bold')
-    sub_style = ParagraphStyle('Sub', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#64748B'))
-    cell_head = ParagraphStyle('Head', parent=styles['Normal'], fontSize=8, textColor=colors.HexColor('#FFFFFF'), fontName='Helvetica-Bold')
-    cell_style = ParagraphStyle('Cell', parent=styles['Normal'], fontSize=8, textColor=colors.HexColor('#334155'))
+    <!-- Gráficos -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="bg-slate-800 border border-slate-700/60 p-5 rounded-xl shadow-lg">
+            <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <i data-lucide="bar-chart-2" class="w-5 h-5 text-blue-400"></i>
+                Pareto: Motivos de Refugo
+            </h2>
+            <div class="h-64">
+                <canvas id="paretoChart"></canvas>
+            </div>
+        </div>
 
-    elements.append(Paragraph("Relatório Executivo de Refugos — Qualidade", title_style))
-    elements.append(Paragraph(f"Emitido em: {datetime.datetime.now().strftime('%d/%m/%Y às %H:%M')}", sub_style))
-    elements.append(Spacer(1, 15))
-    elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#E2E8F0'), spaceAfter=15))
+        <div class="bg-slate-800 border border-slate-700/60 p-5 rounded-xl shadow-lg">
+            <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <i data-lucide="line-chart" class="w-5 h-5 text-emerald-400"></i>
+                Evolução Temporal (%) vs Meta
+            </h2>
+            <div class="h-64">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+    </div>
 
-    # Dados da Tabela Resumida
-    table_data = [[
-        Paragraph("Seção", cell_head),
-        Paragraph("Turno", cell_head),
-        Paragraph("Defeito", cell_head),
-        Paragraph("Qtd", cell_head),
-        Paragraph("Valor (R$)", cell_head)
-    ]]
+    <!-- Tabela Detalhada -->
+    <div class="bg-slate-800 border border-slate-700/60 rounded-xl shadow-lg overflow-hidden">
+        <div class="p-5 border-b border-slate-700/60">
+            <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+                <i data-lucide="list" class="w-5 h-5 text-amber-400"></i>
+                Detalhamento por Máquina / Posto
+            </h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-300">
+                <thead class="bg-slate-900/50 text-slate-400 uppercase text-xs">
+                    <tr>
+                        <th class="p-4">Posto / Máquina</th>
+                        <th class="p-4">Qtd Produzida</th>
+                        <th class="p-4">Qtd Refugada</th>
+                        <th class="p-4">Taxa (%)</th>
+                        <th class="p-4">Custo Refugo</th>
+                        <th class="p-4">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody" class="divide-y divide-slate-700/50">
+                    <tr>
+                        <td colspan="6" class="p-4 text-center text-slate-500">Nenhum dado importado. Por favor, carregue um arquivo.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-    for _, row in df_filtrado.iterrows():
-        table_data.append([
-            Paragraph(str(row.get("secao", "-")), cell_style),
-            Paragraph(str(row.get("turno", "-")), cell_style),
-            Paragraph(str(row.get("defeito_tipo", "-")), cell_style),
-            Paragraph(str(row.get("quantidade", 0)), cell_style),
-            Paragraph(f"R$ {float(row.get('valor', 0)):,.2f}", cell_style)
-        ])
+    <script>
+        lucide.createIcons();
 
-    t = Table(table_data, colWidths=[100, 70, 180, 60, 100])
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E293B')),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
-    ]))
-    
-    elements.append(t)
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
+        let paretoChart, trendChart;
 
-# ---------------------------------------------------------
-# Carregamento e Filtros na Sidebar
-# ---------------------------------------------------------
-df_raw = carregar_dados()
+        // Inicialização dos Gráficos Vazios
+        function initCharts() {
+            const paretoCtx = document.getElementById('paretoChart').getContext('2d');
+            paretoChart = new Chart(paretoCtx, {
+                type: 'bar',
+                data: { labels: [], datasets: [{ label: 'Qtd Refugada', data: [], backgroundColor: '#3b82f6', borderRadius: 6 }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } } } }
+            });
 
-with st.sidebar:
-    st.markdown("### 🔍 Filtros Estratégicos")
-    
-    if not df_raw.empty:
-        secoes = ["Todas"] + sorted(list(df_raw["secao"].dropna().unique())) if "secao" in df_raw.columns else ["Todas"]
-        turnos = ["Todos"] + sorted(list(df_raw["turno"].dropna().unique())) if "turno" in df_raw.columns else ["Todos"]
-        
-        secao_sel = st.selectbox("Seção / Setor", secoes)
-        turno_sel = st.selectbox("Turno Operacional", turnos)
-        
-        # Aplicação dos Filtros
-        df_filtered = df_raw.copy()
-        if secao_sel != "Todas":
-            df_filtered = df_filtered[df_filtered["secao"] == secao_sel]
-        if turno_sel != "Todos":
-            df_filtered = df_filtered[df_filtered["turno"] == turno_sel]
-    else:
-        df_filtered = pd.DataFrame()
-        st.info("Nenhum dado cadastrado para filtragem.")
+            const trendCtx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'Taxa Refugo (%)', data: [], borderColor: '#f59e0b', borderWidth: 3, tension: 0.3 },
+                        { label: 'Meta (1.5%)', data: [], borderColor: '#ef4444', borderWidth: 2, borderDash: [5, 5], pointRadius: 0 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } } } }
+            });
+        }
+        initCharts();
 
-    st.markdown("---")
-    st.markdown("### 📄 Relatórios")
-    if not df_filtered.empty:
-        pdf_file = gerar_pdf(df_filtered)
-        st.download_button(
-            label="📥 Exportar Relatório PDF",
-            data=pdf_file,
-            file_name=f"relatorio_refugos_{datetime.date.today()}.pdf",
-            mime="application/pdf",
-            use_container_width=True
-        )
+        // Leitura de Arquivo CSV ou Excel (O Novo Motor)
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            document.getElementById('fileName').textContent = file.name;
+            const fileName = file.name.toLowerCase();
+            const reader = new FileReader();
 
-# ---------------------------------------------------------
-# Painel Principal e Abas
-# ---------------------------------------------------------
-st.title("🏭 Control de Refugos — Gestão de Qualidade")
-st.markdown("Painel analítico para monitoramento de perdas, custos de não-conformidade e análise operacional.")
-
-tab1, tab2, tab3 = st.tabs(["📊 Visão Geral & Métricas", "➕ Novo Registro", "🗂️ Base de Dados"])
-
-# ---------------------------------------------------------
-# TAB 1: VISÃO GERAL
-# ---------------------------------------------------------
-with tab1:
-    if not df_filtered.empty:
-        # Métricas de KPI executivas
-        tot_qtd = int(df_filtered["quantidade"].sum())
-        tot_val = float(df_filtered["valor"].sum())
-        ticket_medio = tot_val / tot_qtd if tot_qtd > 0 else 0
-        total_registros = len(df_filtered)
-
-        m1, m2, m3, m4 = st.columns(4)
-        with m1:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-title">Total Refugado</div><div class="kpi-value">{tot_qtd:,} <span style="font-size: 1rem;">pcs</span></div></div>', unsafe_allow_html=True)
-        with m2:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-title">Custo Total de Refugo</div><div class="kpi-value">R$ {tot_val:,.2f}</div></div>', unsafe_allow_html=True)
-        with m3:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-title">Custo Médio / Peça</div><div class="kpi-value">R$ {ticket_medio:,.2f}</div></div>', unsafe_allow_html=True)
-        with m4:
-            st.markdown(f'<div class="kpi-card"><div class="kpi-title">Ocorrências</div><div class="kpi-value">{total_registros}</div></div>', unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Gráficos de Análise
-        g1, g2 = st.columns(2)
-        
-        with g1:
-            if "defeito_tipo" in df_filtered.columns:
-                df_def = df_filtered.groupby("defeito_tipo")["valor"].sum().reset_index().sort_values("valor", ascending=False)
-                fig_def = px.bar(
-                    df_def,
-                    x="valor",
-                    y="defeito_tipo",
-                    orientation="h",
-                    title="<b>Perda Financeira por Tipologia de Defeito (R$)</b>",
-                    color="valor",
-                    color_continuous_scale="Reds",
-                    labels={"valor": "Custo (R$)", "defeito_tipo": "Tipo de Defeito"}
-                )
-                fig_def.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", showlegend=False, margin=dict(l=0, r=0, t=40, b=0))
-                st.plotly_chart(fig_def, use_container_width=True)
-
-        with g2:
-            if "secao" in df_filtered.columns:
-                df_sec = df_filtered.groupby("secao")["quantidade"].sum().reset_index()
-                fig_sec = px.pie(
-                    df_sec,
-                    names="secao",
-                    values="quantidade",
-                    title="<b>Distribuição de Peças Refugadas por Seção</b>",
-                    hole=0.45,
-                    color_discrete_sequence=px.colors.qualitative.Safe
-                )
-                fig_sec.update_layout(paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=40, b=0))
-                st.plotly_chart(fig_sec, use_container_width=True)
-
-    else:
-        st.warning("Nenhum dado encontrado para os filtros selecionados.")
-
-# ---------------------------------------------------------
-# TAB 2: REGISTRO DE DADOS
-# ---------------------------------------------------------
-with tab2:
-    st.subheader("Cadastrar Ocorrência de Refugo")
-    st.markdown("Preencha as informações abaixo para alimentar o sistema em tempo real.")
-
-    with st.form("form_refugo", clear_on_submit=True):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            secao = st.text_input("Seção / Setor", placeholder="Ex: Usinagem")
-            turno = st.selectbox("Turno", ["1º Turno", "2º Turno", "3º Turno", "Geral"])
-            defeito_tipo = st.text_input("Tipo do Defeito", placeholder="Ex: Dimensional Fora")
-        with c2:
-            material = st.text_input("Código do Material", placeholder="Ex: MAT-10294")
-            descricao_material = st.text_input("Descrição do Material", placeholder="Ex: Eixo Traseiro")
-            nota = st.text_input("Número da Nota / Apontamento")
-        with c3:
-            quantidade = st.number_input("Quantidade Refugada", min_value=1, step=1)
-            valor = st.number_input("Valor de Custo Total (R$)", min_value=0.0, format="%.2f")
-            ct = st.text_input("Centro de Trabalho (CT)", placeholder="Ex: CT-04")
-
-        observacao = st.text_area("Observações Técnicas", placeholder="Detalhes adicionais sobre a não-conformidade...")
-        
-        btn_salvar = st.form_submit_button("💾 Salvar Registro no Banco", use_container_width=True)
-
-        if btn_salvar:
-            if not secao or not defeito_tipo:
-                st.error("Por favor, preencha os campos obrigatórios: Seção e Tipo de Defeito.")
-            else:
-                novo_registro = {
-                    "secao": secao,
-                    "turno": turno,
-                    "defeito_tipo": defeito_tipo,
-                    "material": material,
-                    "descricao_material": descricao_material,
-                    "nota": nota,
-                    "quantidade": quantidade,
-                    "valor": valor,
-                    "ct": ct,
-                    "observacao": observacao,
-                    "data": datetime.date.today().strftime("%Y-%m-%d")
-                }
-                try:
-                    supabase.table("refugos").insert(novo_registro).execute()
-                    st.success("Registro adicionado com sucesso!")
-                    st.cache_data.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao salvar registro: {e}")
-
-# ---------------------------------------------------------
-# TAB 3: BASE DE DADOS E TABELA INTERATIVA
-# ---------------------------------------------------------
-with tab3:
-    st.subheader("Base Geral de Apontamentos")
-    st.markdown("Consulte e acompanhe todas as entradas cadastradas.")
-    if not df_filtered.empty:
-        st.dataframe(
-            df_filtered,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
-                "quantidade": st.column_config.NumberColumn("Qtd (pcs)"),
-                "data": st.column_config.DateColumn("Data")
+            if (fileName.endsWith('.csv') || fileName.endsWith('.txt')) {
+                reader.onload = function(evt) {
+                    processCSV(evt.target.result);
+                };
+                reader.readAsText(file);
+            } 
+            else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                reader.onload = function(evt) {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    // Converte Excel para CSV e envia para a mesma função processar
+                    processCSV(XLSX.utils.sheet_to_csv(worksheet));
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                alert("Por favor, envie um arquivo .csv, .xls ou .xlsx");
             }
-        )
-    else:
-        st.info("Sem dados disponíveis na base de dados.")
+        });
+
+        // Função que processa os dados (A mesma de antes)
+        function processCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) return;
+
+            const rows = lines.slice(1).map(line => {
+                const cols = line.split(/[,;\t]/).map(c => c.trim());
+                return {
+                    data: cols[0],
+                    turno: cols[1],
+                    maquina: cols[2],
+                    qtdProduzida: parseFloat(cols[3]) || 0,
+                    qtdRefugada: parseFloat(cols[4]) || 0,
+                    motivo: cols[5] || 'Outros',
+                    custoUnitario: parseFloat(cols[6]) || 0
+                };
+            });
+            updateDashboard(rows);
+        }
+
+        function updateDashboard(data) {
+            let totalProduzido = 0;
+            let totalRefugado = 0;
+            let custoTotal = 0;
+            const motivosMap = {};
+            const datasMap = {};
+            const maquinasMap = {};
+
+            data.forEach(item => {
+                totalProduzido += item.qtdProduzida;
+                totalRefugado += item.qtdRefugada;
+                custoTotal += (item.qtdRefugada * item.custoUnitario);
+
+                // Agrupamento por Motivo
+                motivosMap[item.motivo] = (motivosMap[item.motivo] || 0) + item.qtdRefugada;
+
+                // Agrupamento por Data
+                if (!datasMap[item.data]) datasMap[item.data] = { prod: 0, ref: 0 };
+                datasMap[item.data].prod += item.qtdProduzida;
+                datasMap[item.data].ref += item.qtdRefugada;
+
+                // Agrupamento por Máquina
+                if (!maquinasMap[item.maquina]) maquinasMap[item.maquina] = { prod: 0, ref: 0, custo: 0 };
+                maquinasMap[item.maquina].prod += item.qtdProduzida;
+                maquinasMap[item.maquina].ref += item.qtdRefugada;
+                maquinasMap[item.maquina].custo += (item.qtdRefugada * item.custoUnitario);
+            });
+
+            const taxaGeral = totalProduzido > 0 ? ((totalRefugado / totalProduzido) * 100).toFixed(2) : 0;
+
+            // Atualiza KPIs
+            document.getElementById('kpiTotalRefugado').innerHTML = `${totalRefugado.toLocaleString('pt-BR')} <span class="text-xs font-normal text-slate-400">pçs</span>`;
+            document.getElementById('kpiTaxaRefugo').textContent = `${taxaGeral}%`;
+            document.getElementById('kpiCustoTotal').textContent = custoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            document.getElementById('kpiTotalProduzido').innerHTML = `${totalProduzido.toLocaleString('pt-BR')} <span class="text-xs font-normal text-slate-400">pçs</span>`;
+
+            // Atualiza Pareto
+            const sortedMotivos = Object.entries(motivosMap).sort((a,b) => b[1] - a[1]);
+            paretoChart.data.labels = sortedMotivos.map(m => m[0]);
+            paretoChart.data.datasets[0].data = sortedMotivos.map(m => m[1]);
+            paretoChart.update();
+
+            // Atualiza Tendência
+            const sortedDatas = Object.keys(datasMap).sort();
+            const taxasDiarias = sortedDatas.map(d => {
+                const prod = datasMap[d].prod;
+                return prod > 0 ? ((datasMap[d].ref / prod) * 100).toFixed(2) : 0;
+            });
+            trendChart.data.labels = sortedDatas;
+            trendChart.data.datasets[0].data = taxasDiarias;
+            trendChart.data.datasets[1].data = sortedDatas.map(() => 1.5);
+            trendChart.update();
+
+            // Atualiza Tabela
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            Object.keys(maquinasMap).forEach(maq => {
+                const m = maquinasMap[maq];
+                const taxa = m.prod > 0 ? ((m.ref / m.prod) * 100).toFixed(2) : 0;
+                
+                let statusBadge = '<span class="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-xs font-medium">Dentro da Meta</span>';
+                if (taxa > 1.5) {
+                    statusBadge = '<span class="px-2.5 py-1 bg-red-500/10 text-red-400 rounded-full text-xs font-medium">Acima da Meta</span>';
+                }
+
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-700/30 transition';
+                tr.innerHTML = `
+                    <td class="p-4 font-medium text-white">${maq}</td>
+                    <td class="p-4">${m.prod.toLocaleString('pt-BR')}</td>
+                    <td class="p-4 text-red-400 font-semibold">${m.ref.toLocaleString('pt-BR')}</td>
+                    <td class="p-4">${taxa}%</td>
+                    <td class="p-4">${m.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                    <td class="p-4">${statusBadge}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
