@@ -8,7 +8,6 @@ st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 # Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
 st.markdown("""
     <style>
-    /* Remove o espaçamento superior padrão do Streamlit para o cabeçalho colar no topo */
     .block-container {
         padding-top: 1rem !important;
         padding-left: 2rem !important;
@@ -16,7 +15,6 @@ st.markdown("""
         max-width: 100% !important;
     }
 
-    /* Cabeçalho ocupando 100% da largura da tela */
     .header-container {
         position: relative;
         background-image: linear-gradient(rgba(10, 25, 47, 0.88), rgba(10, 25, 47, 0.88)), 
@@ -44,7 +42,6 @@ st.markdown("""
         margin-top: 5px;
     }
 
-    /* Posiciona o botão de menu (hambúrguer) do Streamlit no canto superior direito */
     [data-testid="collapsedControl"] {
         position: fixed !important;
         top: 15px !important;
@@ -80,10 +77,7 @@ with st.sidebar:
         uploaded_file = st.file_uploader("Enviar Planilha (.xlsm, .xlsx)", type=["xlsx", "xls", "xlsm"])
         if uploaded_file is not None:
             try:
-                # Lê especificamente a aba "Notas" da planilha
                 df_novo = pd.read_excel(uploaded_file, sheet_name='Notas', engine='openpyxl')
-                
-                # Padroniza os nomes das colunas para minúsculo e sem espaços excessivos
                 df_novo.columns = [str(c).strip().lower() for c in df_novo.columns]
 
                 conn = sqlite3.connect('refugos_weg.db', timeout=10)
@@ -112,16 +106,9 @@ except:
     df = pd.DataFrame()
 
 if not df.empty:
-    # Padroniza nomes de colunas excluindo 'rowid' da transformação de texto
-    cols_normalizadas = {}
-    for c in df.columns:
-        if c == 'rowid':
-            cols_normalizadas[c] = 'rowid'
-        else:
-            cols_normalizadas[c] = str(c).strip().lower()
+    cols_normalizadas = {c: ('rowid' if c == 'rowid' else str(c).strip().lower()) for c in df.columns}
     df = df.rename(columns=cols_normalizadas)
 
-    # Função para encontrar colunas com flexibilidade de nomes
     def encontra_coluna(termos):
         for t in termos:
             for c in df.columns:
@@ -196,7 +183,76 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # Mapeamento para exibição na tela
+    # ==================== POP-UP DE EDIÇÃO EM MODAL (ST.DIALOG) ====================
+    @st.dialog("✏️ Editar Registro da Nota", width="large")
+    def modal_edicao(rowid_alvo):
+        # Localiza a linha correspondente no dataframe
+        linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
+        
+        st.markdown(f"### Nota: `{linha_atual[col_nota] if col_nota else 'N/A'}` | Seção: `{linha_atual[col_secao] if col_secao else 'N/A'}`")
+        st.write("Utilize as abas abaixo para editar as informações específicas:")
+
+        with st.form(f"form_modal_{rowid_alvo}"):
+            # Criação das Abas solicitadas dentro do container de edição
+            aba_info, aba_acao, aba_colab, aba_prep = st.tabs(["Informações", "Ação", "Colaborador", "Preparador"])
+
+            with aba_info:
+                val_obs = str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else ""
+                novo_obs = st.text_area("Informações (Observação):", value=val_obs, height=120)
+
+            with aba_acao:
+                val_acao = str(linha_atual[col_acao]) if col_acao and pd.notna(linha_atual[col_acao]) else ""
+                nova_acao = st.text_input("Ação corretiva/operacional:", value=val_acao)
+
+            with aba_colab:
+                val_colab = str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else ""
+                novo_colab = st.text_input("Colaborador responsável:", value=val_colab)
+
+            with aba_prep:
+                val_prep = str(linha_atual[col_prep]) if col_prep and pd.notna(linha_atual[col_prep]) else ""
+                novo_prep = st.text_input("Preparador responsável:", value=val_prep]
+
+            st.write("")
+            col_b1, col_b2 = st.columns([1, 4])
+            with col_b1:
+                salvar = st.form_submit_button("💾 Salvar", type="primary")
+            
+            if salvar:
+                try:
+                    conn = sqlite3.connect('refugos_weg.db', timeout=10)
+                    cursor = conn.cursor()
+                    
+                    updates = []
+                    params = []
+                    if col_obs:
+                        updates.append(f"{col_obs} = ?")
+                        params.append(novo_obs)
+                    if col_acao:
+                        updates.append(f"{col_acao} = ?")
+                        params.append(nova_acao)
+                    if col_colab:
+                        updates.append(f"{col_colab} = ?")
+                        params.append(novo_colab)
+                    if col_prep:
+                        updates.append(f"{col_prep} = ?")
+                        params.append(novo_prep)
+                    
+                    params.append(rowid_alvo)
+                    query = f"UPDATE tabela_notas SET {', '.join(updates)} WHERE rowid = ?"
+                    
+                    cursor.execute(query, params)
+                    conn.commit()
+                    conn.close()
+                    
+                    st.success("Atualizado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao salvar: {e}")
+
+    # ==================== EXIBIÇÃO DA TABELA COM BOTÕES DE EDIÇÃO ====================
+    st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
+
+    # Mapeamento de colunas para exibição limpa
     mapeamento_colunas = {
         col_secao: "seção",
         col_defeito: "defeito",
@@ -220,73 +276,23 @@ if not df.empty:
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
-    # ==================== EXIBIÇÃO NA TELA ====================
-    st.subheader(f"📊 Registros Encontrados ({len(df_exibicao)})")
-    
-    # Exibe a tabela sem a coluna interna 'rowid' visualmente na listagem principal
-    st.dataframe(df_exibicao.drop(columns=['rowid']), use_container_width=True)
-
-    # ==================== SEÇÃO DE EDIÇÃO DE REGISTROS ====================
-    with st.expander("✏️ Editar Informações, Ação, Colaborador ou Preparador de uma Nota", expanded=False):
-        if not df_exibicao.empty:
-            # Cria um seletor amigável mostrando a Nota e a Seção
-            opcoes_notas = {}
-            for idx, row in df_exibicao.iterrows():
-                label = f"Nota: {row['nota']} | Seção: {row['seção']} | Data: {str(row['data'])[:10]}"
-                opcoes_notas[label] = row['rowid']
-
-            escolha_nota = st.selectbox("Selecione o registro para editar:", list(opcoes_notas.keys()))
+    # Renderiza a tabela linha por linha para adicionar o botão interativo de edição em cada registro
+    for idx, row in df_exibicao.iterrows():
+        r_id = row['rowid']
+        # Cria uma linha visual dividida: Dados da tabela à esquerda e Botão de Editar à direita
+        c_tabela, c_botao = st.columns([12, 1])
+        
+        with c_tabela:
+            # Exibe os dados da linha formatados como dataframe unitário (sem o rowid)
+            df_linha_unica = pd.DataFrame([row.drop('rowid')])
+            st.dataframe(df_linha_unica, use_container_width=True, hide_index=True)
             
-            if escolha_nota:
-                selected_rowid = opcoes_notas[escolha_nota]
-                # Pega os dados atuais da linha selecionada no dataframe principal
-                linha_atual = df_filtrado[df_filtrado['rowid'] == selected_rowid].iloc[0]
+        with c_botao:
+            st.write("") # espaçamento vertical de alinhamento
+            if st.button("✏️", key=f"btn_edit_{r_id}", help="Editar este registro"):
+                modal_edicao(r_id)
 
-                st.write("---")
-                st.markdown(f"**Editando a Nota:** `{linha_atual[col_nota] if col_nota else 'N/A'}`")
-
-                with st.form("form_edicao"):
-                    novo_obs = st.text_area("Informações (Observação):", value=str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else "")
-                    nova_acao = st.text_input("Ação:", value=str(linha_atual[col_acao]) if col_acao and pd.notna(linha_atual[col_acao]) else "")
-                    novo_colab = st.text_input("Colaborador:", value=str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else "")
-                    novo_prep = st.text_input("Preparador:", value=str(linha_atual[col_prep]) if col_prep and pd.notna(linha_atual[col_prep]) else "")
-
-                    salvar_edicao = st.form_submit_button("💾 Salvar Alterações no Banco")
-
-                    if salvar_edicao:
-                        try:
-                            conn = sqlite3.connect('refugos_weg.db', timeout=10)
-                            cursor = conn.cursor()
-                            
-                            # Atualiza dinamicamente apenas os campos que existem na tabela
-                            updates = []
-                            params = []
-                            if col_obs:
-                                updates.append(f"{col_obs} = ?")
-                                params.append(novo_obs)
-                            if col_acao:
-                                updates.append(f"{col_acao} = ?")
-                                params.append(nova_acao)
-                            if col_colab:
-                                updates.append(f"{col_colab} = ?")
-                                params.append(novo_colab)
-                            if col_prep:
-                                updates.append(f"{col_prep} = ?")
-                                params.append(novo_prep)
-                            
-                            params.append(selected_rowid)
-                            query = f"UPDATE tabela_notas SET {', '.join(updates)} WHERE rowid = ?"
-                            
-                            cursor.execute(query, params)
-                            conn.commit()
-                            conn.close()
-                            
-                            st.success("Alterações salvas com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao salvar alterações: {e}")
-        else:
-            st.info("Nenhum registro disponível para edição com os filtros atuais.")
+        st.markdown("---")
 
     # Botão de limpeza do banco
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
