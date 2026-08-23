@@ -183,13 +183,16 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # ==================== POP-UP DE EDIÇÃO DA NOTA (COMPACTO E SEM ABAS) ====================
-    @st.dialog("✏️", width="large")
+    # ==================== POP-UP DE EDIÇÃO DA NOTA (COMPACTO COM TÍTULO CUSTOMIZADO) =---
+    @st.dialog("✏️ Nota: Carregando...", width="large")
     def modal_edicao(rowid_alvo):
         linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
         num_nota = linha_atual[col_nota] if col_nota and pd.notna(linha_atual[col_nota]) else 'N/A'
         
-        st.markdown(f"**Nota de Referência:** `{num_nota}`")
+        # Como o st.dialog usa o título do decorator, criamos uma função auxiliar ou atualizamos via HTML interno se necessário,
+        # mas aqui colocamos diretamente no parâmetro title do decorator se dinâmico, ou exibimos logo abaixo de forma limpa.
+        # No Streamlit, o título do dialog é estático no decorator. Para ajustar dinamicamente, colocamos no topo do form:
+        st.markdown(f"### ✏️ Nota: `{num_nota}`")
 
         with st.form(f"form_modal_{rowid_alvo}"):
             c1, c2, c3 = st.columns(3)
