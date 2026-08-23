@@ -105,19 +105,13 @@ def parse_valor_numerico(valor):
     except: return 0
 
 # ============================================================
-# IMPORTAÇÃO
+# IMPORTAÇÃO AUTOMÁTICA — SEM BOTÃO!
 # ============================================================
 def import_excel(uploaded_file):
-    try:
-        suffix = Path(uploaded_file.name).suffix.lower()
-        if suffix == ".xls":
-            return pd.read_excel(uploaded_file, sheet_name="Notas", engine="xlrd")
-        return pd.read_excel(uploaded_file, sheet_name="Notas", engine="openpyxl")
-    except Exception as e:
-        raise RuntimeError(f"Erro ao ler arquivo: {str(e)}")
-
-def safe_identifier(name):
-    return '"' + str(name).replace('"', '""') + '"'
+    suffix = Path(uploaded_file.name).suffix.lower()
+    if suffix == ".xls":
+        return pd.read_excel(uploaded_file, sheet_name="Notas", engine="xlrd")
+    return pd.read_excel(uploaded_file, sheet_name="Notas", engine="openpyxl")
 
 def salvar_dados(df_novo):
     df_novo = remover_colunas_extras(df_novo)
@@ -134,37 +128,46 @@ def salvar_dados(df_novo):
         col_nota_ant = find_column(df_antigo, ["nota"])
         if col_nota_ant:
             df_antigo[col_nota_ant] = df_antigo[col_nota_ant].astype(str).str.strip()
+            notas_antigas = set(df_antigo[col_nota_ant].unique())
+            novas = len(set(df_novo[col_nota].unique()) - notas_antigas)
             df_final = pd.concat([df_novo, df_antigo]).drop_duplicates(subset=col_nota, keep="first")
         else:
             df_final = df_novo
+            novas = len(df_novo)
     else:
         df_final = df_novo
+        novas = len(df_novo)
 
     df_final.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
     conn.commit()
     conn.close()
-    return len(df_novo), len(df_final) - (len(df_antigo) if table_exists() else 0)
+    return len(df_novo), novas
 
 # ============================================================
-# MENU LATERAL
+# 📂 MENU LATERAL — IMPORTACAO AUTOMÁTICA
 # ============================================================
 with st.sidebar:
     st.header("🛠️ Menu de Opções")
     with st.expander("📂 Importar Dados", expanded=False):
-        arq = st.file_uploader("Planilha (.xlsx, .xlsm, .xls)", type=["xlsx", "xlsm", "xls"])
+        arq = st.file_uploader(
+            "Selecione sua Planilha (.xlsx, .xlsm, .xls)",
+            type=["xlsx", "xlsm", "xls"]
+        )
+
+        # ✅ LEITURA AUTOMÁTICA — SEM BOTÃO!
         if arq is not None:
-            if st.button("📥 Importar Aba 'Notas'", type="primary"):
-                try:
-                    df = import_excel(arq)
-                    if df.empty:
-                        st.warning("A aba 'Notas' está vazia.")
-                    else:
-                        df = normalize_columns(df)
-                        total, novas = salvar_dados(df)
-                        st.success(f"✅ {total} registros importados! ({novas} novos)")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"❌ {str(e)}")
+            try:
+                st.info(f"📖 Lendo: {arq.name}...")
+                df = import_excel(arq)
+                if df.empty:
+                    st.warning("⚠️ A aba 'Notas' está vazia.")
+                else:
+                    df = normalize_columns(df)
+                    total, novas = salvar_dados(df)
+                    st.success(f"✅ {total} registros importados! ({novas} novos)")
+                    st.rerun()  # ✅ Atualiza a tela automaticamente
+            except Exception as e:
+                st.error(f"❌ Erro: {str(e)}")
 
     st.divider()
     st.subheader("🔍 Filtros")
@@ -174,7 +177,7 @@ with st.sidebar:
 # ============================================================
 df = load_data()
 if df.empty:
-    st.warning("⚠️ Banco vazio → envie sua planilha pelo menu lateral → '📂 Importar Dados'")
+    st.warning("⚠️ Banco vazio → Selecione sua planilha no menu lateral acima 👆")
     st.stop()
 
 # Mapeia colunas
