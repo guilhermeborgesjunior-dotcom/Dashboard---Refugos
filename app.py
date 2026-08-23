@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, date
 from io import BytesIO
+import re
 
 # ============================================================
 # CONFIGURAÇÃO
@@ -17,28 +18,22 @@ st.set_page_config(
 DB_PATH = Path("refugos_weg.db")
 TABLE_NAME = "tabela_notas"
 
-# ✅ COLUNAS QUE QUEREMOS DA ABA "NOTAS" (nome: índice da coluna)
-# Baseado na análise do seu arquivo:
-# 3=SEÇÃO, 4=DEFEITO, 5=NOTA, 6=DATA, 7=TURNO, 10=MATERIAL
-# 11=DESCRIÇÃO DO MATERIAL, 12=CT CAUSADOR, 13=QUANTIDADE
-# 16=DESCRIÇÃO DO DEFEITO, 18=CAUSA, 19=TEXTO DA CAUSA, 21=CUSTO REFUGO
+# ✅ COLUNAS DA ABA "NOTAS" (índice 0-based)
 COLUNAS_IMPORTAR = {
-    "SEÇÃO": 2,       # índice 0-based = coluna C
-    "DEFEITO": 3,     # coluna D
-    "NOTA": 4,        # coluna E
-    "DATA": 5,        # coluna F
-    "TURNO": 6,       # coluna G
-    "MATERIAL": 9,    # coluna J
-    "DESCRIÇÃO DO MATERIAL": 10,  # coluna K
-    "CT CAUSADOR": 11,           # coluna L
-    "QUANTIDADE": 12,            # coluna M
-    "DESCRIÇÃO DO DEFEITO": 15,  # coluna P
-    "CAUSA": 17,                 # coluna R
-    "TEXTO DA CAUSA": 18,        # coluna S
-    "CUSTO REFUGO": 20,          # coluna V
+    "SEÇÃO": 2,
+    "DEFEITO": 3,
+    "NOTA": 4,
+    "DATA": 5,
+    "TURNO": 6,
+    "MATERIAL": 9,
+    "DESCRIÇÃO DO MATERIAL": 10,
+    "CT CAUSADOR": 11,
+    "QUANTIDADE": 12,
+    "DESCRIÇÃO DO DEFEITO": 15,
+    "CAUSA": 17,
+    "TEXTO DA CAUSA": 18,
+    "CUSTO REFUGO": 20,
 }
-
-COLUNAS_IGNORAR = ["dia", "semana", "mês", "ano", "__ano__", "__mes__"]
 
 # ============================================================
 # ESTILO
@@ -78,20 +73,11 @@ def table_exists():
         return cur.fetchone() is not None
     finally: conn.close()
 
-def converter_datas_para_texto(df):
-    """Converte datas para string compatível com SQLite"""
-    df = df.copy()
-    for col in df.columns:
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
-            df[col] = df[col].dt.strftime("%Y-%m-%d").fillna("")
-    return df
-
 def load_data():
     if not table_exists(): return pd.DataFrame()
     conn = get_connection()
     try:
-        df = pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
-        return df
+        return pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
     except Exception as e:
         st.error(f"Erro ao carregar: {e}")
         return pd.DataFrame()
@@ -100,11 +86,6 @@ def load_data():
 # ============================================================
 # UTILITÁRIOS
 # ============================================================
-def normalize_columns(df):
-    df = df.copy()
-    df.columns = [str(c).strip().replace("\n", " ").title() for c in df.columns]
-    return df
-
 def find_column(df, terms):
     for t in terms:
         t = t.lower().strip()
@@ -112,15 +93,57 @@ def find_column(df, terms):
             if t in str(c).lower().strip(): return c
     return None
 
-def parse_date_series(series):
-    result = pd.to_datetime(series, errors="coerce", dayfirst=True)
-    mask = result.isna()
-    if mask.any():
-        result.loc[mask] = pd.to_datetime(
-            series.loc[mask].astype(str).str.replace(".", "/", regex=False),
-            errors="coerce", dayfirst=True
-        )
-    return result
+def limpar_nota(valor):
+    """✅ Converte nota para número inteiro, remove .0 e pontos de milhar"""
+    if pd.isna(valor): return ""
+    s = str(valor).strip()
+    # Remove .0 no final
+    s = re.sub(r'\.0+$', '', s)
+    # Remove pontos de milhar
+    s = s.replace('.', '').replace(',', '')
+    # Remove caracteres não numéricos
+    s = re.sub(r'[^0-9]', '', s)
+    return s if s else ""
+
+def formatar_data_br(valor):
+    """✅ Converte data para formato dd/mm/aaaa"""
+    if pd.isna(valor) or str(valor).strip() == "":
+        return ""
+    
+    if isinstance(valor, datetime):
+        return valor.strftime("%d/%m/%Y")
+    
+    if isinstance(valor, date):
+        return valor.strftime("%d/%m/%Y")
+    
+    s = str(valor).strip()
+    
+    # Tenta vários formatos
+    formatos = [
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
+        "%d/%m/%Y %H:%M:%S", "%d/%m/%Y",
+        "%d-%m-%Y", "%d.%m.%Y",
+    ]
+    
+    for fmt in formatos:
+        try:
+            return datetime.strptime(s, fmt).strftime("%d/%m/%Y")
+        except:
+            continue
+    
+    # Tenta com pandas
+    try:
+        dt = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        if pd.notna(dt):
+            return dt.strftime("%d/%m/%Y")
+    except:
+        pass
+    
+    return s
+
+def parse_data_para_filtro(series):
+    """Converte string dd/mm/aaaa para datetime (para filtros)"""
+    return pd.to_datetime(series, format="%d/%m/%Y", errors="coerce", dayfirst=True)
 
 def parse_valor_numerico(valor):
     if pd.isna(valor) or str(valor).strip() == "": return 0
@@ -129,37 +152,26 @@ def parse_valor_numerico(valor):
     except: return 0
 
 # ============================================================
-# 🚀 LEITURA OTIMIZADA — DIRETO DA MEMÓRIA, SÓ COLUNAS NECESSÁRIAS
+# 🚀 LEITURA OTIMIZADA
 # ============================================================
 def ler_arquivo_otimizado(arquivo_carregado):
-    """
-    Lê APENAS a aba "Notas" e SOMENTE as colunas que precisamos.
-    Muito mais rápido! Usa openpyxl em modo leitura.
-    """
     import openpyxl
     
-    # Lê direto da memória (BytesIO), sem arquivo temporário
     dados_bytes = BytesIO(arquivo_carregado.getvalue())
-    
-    # Modo leitura + apenas valores (não recalcula fórmulas!)
     wb = openpyxl.load_workbook(dados_bytes, read_only=True, data_only=True)
     
-    # Procura a aba "Notas"
     if "Notas" not in wb.sheetnames:
-        raise ValueError(f"Aba 'Notas' não encontrada! Abas disponíveis: {', '.join(wb.sheetnames)}")
+        raise ValueError(f"Aba 'Notas' não encontrada! Abas: {', '.join(wb.sheetnames)}")
     
     ws = wb["Notas"]
-    
-    # Pega os índices das colunas que queremos
     indices_colunas = list(COLUNAS_IMPORTAR.values())
     nomes_colunas = list(COLUNAS_IMPORTAR.keys())
     
-    # Lê os dados de forma eficiente (iter_rows)
     dados = []
     for i, linha in enumerate(ws.iter_rows(min_row=2, values_only=True)):
-        if i >= 10000: break  # limite de segurança
+        if i >= 15000: break
         
-        # Verifica se a linha tem dados (pelo menos NOTA não vazia)
+        # Verifica se NOTA existe
         if len(linha) <= 4 or linha[4] is None or str(linha[4]).strip() == "":
             continue
         
@@ -167,9 +179,19 @@ def ler_arquivo_otimizado(arquivo_carregado):
         for idx in indices_colunas:
             if idx < len(linha):
                 valor = linha[idx]
-                # Converte datas para string
-                if isinstance(valor, datetime):
-                    valor = valor.strftime("%Y-%m-%d")
+                
+                # ✅ NOTA: limpar e converter para inteiro
+                if idx == 4:  # coluna NOTA
+                    valor = limpar_nota(valor)
+                
+                # ✅ DATA: converter para dd/mm/aaaa
+                elif idx == 5:  # coluna DATA
+                    valor = formatar_data_br(valor)
+                
+                # Outras datas
+                elif isinstance(valor, datetime):
+                    valor = valor.strftime("%d/%m/%Y")
+                
                 registro.append(valor)
             else:
                 registro.append(None)
@@ -177,52 +199,54 @@ def ler_arquivo_otimizado(arquivo_carregado):
     
     wb.close()
     
-    # Cria DataFrame
     df = pd.DataFrame(dados, columns=nomes_colunas)
     
-    # Adiciona colunas extras para edição
-    colunas_extras = ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP"]
-    for col in colunas_extras:
-        df[col] = ""
+    # ✅ REMOVER DUPLICATAS pela coluna NOTA
+    df = df.drop_duplicates(subset=["NOTA"], keep="first")
     
-    # Define APQ padrão
+    # Adiciona colunas extras
+    for col in ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP"]:
+        df[col] = ""
     df["APQ"] = "Pendente"
     
     return df
 
 # ============================================================
-# 💾 SALVAR OTIMIZADO
+# 💾 SALVAR
 # ============================================================
 def salvar_dados(df_novo):
-    df_novo = converter_datas_para_texto(df_novo)
     col_nota = find_column(df_novo, ["nota"])
-    
     if not col_nota:
         raise ValueError("Coluna 'Nota' não encontrada!")
 
     df_novo[col_nota] = df_novo[col_nota].astype(str).str.strip()
+    
+    # ✅ Remove duplicatas do novo arquivo
+    df_novo = df_novo.drop_duplicates(subset=[col_nota], keep="first")
+    
     conn = get_connection()
 
     if table_exists():
         df_antigo = pd.read_sql(f'SELECT * FROM "{TABLE_NAME}"', conn)
-        df_antigo = converter_datas_para_texto(df_antigo)
         col_nota_ant = find_column(df_antigo, ["nota"])
         
         if col_nota_ant:
             df_antigo[col_nota_ant] = df_antigo[col_nota_ant].astype(str).str.strip()
-            notas_antigas = set(df_antigo[col_nota_ant].unique())
-            novas = len(set(df_novo[col_nota].unique()) - notas_antigas)
             
-            # Merge: mantém colunas extras (Observações, Ação, etc) dos dados antigos
-            colunas_preservar = ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP", col_nota_ant]
-            colunas_preservar = [c for c in colunas_preservar if c in df_antigo.columns]
+            # Preserva colunas de edição
+            colunas_preservar = [c for c in 
+                ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP", col_nota_ant]
+                if c in df_antigo.columns]
             
             if len(colunas_preservar) > 1:
-                df_antigo_preservar = df_antigo[colunas_preservar].copy()
-                df_novo = df_novo.drop(columns=[c for c in colunas_preservar if c != col_nota], errors="ignore")
-                df_novo = df_novo.merge(df_antigo_preservar, on=col_nota, how="left")
+                df_preservar = df_antigo[colunas_preservar].copy()
+                colunas_remover = [c for c in colunas_preservar if c != col_nota]
+                df_novo = df_novo.drop(columns=colunas_remover, errors="ignore")
+                df_novo = df_novo.merge(df_preservar, on=col_nota, how="left")
             
+            # ✅ Remove duplicatas no merge final
             df_final = pd.concat([df_novo, df_antigo]).drop_duplicates(subset=col_nota, keep="first")
+            novas = len(set(df_novo[col_nota].unique()) - set(df_antigo[col_nota_ant].unique()))
         else:
             df_final = df_novo
             novas = len(df_novo)
@@ -230,7 +254,6 @@ def salvar_dados(df_novo):
         df_final = df_novo
         novas = len(df_novo)
 
-    df_final = converter_datas_para_texto(df_final)
     df_final.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
     conn.commit()
     conn.close()
@@ -253,9 +276,9 @@ with st.sidebar:
                     df = ler_arquivo_otimizado(arq)
                 
                 if df.empty:
-                    st.warning("⚠️ Nenhum dado encontrado na aba 'Notas'.")
+                    st.warning("⚠️ Nenhum dado encontrado.")
                 else:
-                    with st.spinner("💾 Salvando no banco..."):
+                    with st.spinner("💾 Salvando..."):
                         total, novas = salvar_dados(df)
                     
                     st.success(f"✅ {total} registros! ({novas} novas notas)")
@@ -290,11 +313,10 @@ col_obs = find_column(df, ["observação", "observacao", "observações"])
 col_acao = find_column(df, ["ação", "acao"])
 col_apq = find_column(df, ["apq"])
 
-# Trata data
-if col_data:
-    df[col_data] = parse_date_series(df[col_data])
-    df["__ano__"] = df[col_data].dt.year.astype("Int64")
-    df["__mes__"] = df[col_data].dt.month.astype("Int64")
+# Converte data para filtro
+df["__data_dt__"] = parse_data_para_filtro(df[col_data]) if col_data else pd.NaT
+df["__ano__"] = df["__data_dt__"].dt.year.astype("Int64")
+df["__mes__"] = df["__data_dt__"].dt.month.astype("Int64")
 
 # ============================================================
 # FILTROS
@@ -307,7 +329,7 @@ with st.sidebar:
     f_turno = st.selectbox("Turno", turnos)
 
     f_mes = f_ano = "Todos"
-    if col_data and not df["__mes__"].dropna().empty:
+    if not df["__mes__"].dropna().empty:
         f_mes = st.selectbox("Mês", ["Todos"] + sorted([str(int(x)) for x in df["__mes__"].dropna().unique()]))
         f_ano = st.selectbox("Ano", ["Todos"] + sorted([str(int(x)) for x in df["__ano__"].dropna().unique()]))
 
@@ -319,9 +341,9 @@ if f_secao != "Todas" and col_secao:
     df_filt = df_filt[df_filt[col_secao].astype(str).str.strip() == f_secao]
 if f_turno != "Todos" and col_turno:
     df_filt = df_filt[df_filt[col_turno].astype(str).str.strip() == f_turno]
-if f_mes != "Todos" and "__mes__" in df_filt.columns:
+if f_mes != "Todos":
     df_filt = df_filt[df_filt["__mes__"].astype(str) == f_mes]
-if f_ano != "Todos" and "__ano__" in df_filt.columns:
+if f_ano != "Todos":
     df_filt = df_filt[df_filt["__ano__"].astype(str) == f_ano]
 
 # ============================================================
@@ -342,10 +364,9 @@ with c4:
 # ============================================================
 # TABELA
 # ============================================================
-cols_exibir = [c for c in df_filt.columns if c not in ["__ano__", "__mes__"]]
+cols_exibir = [c for c in df_filt.columns if c not in ["__data_dt__", "__ano__", "__mes__"]]
 df_edit = df_filt[cols_exibir].copy()
 
-# Configura coluna APQ como select
 config_colunas = {}
 if col_apq:
     config_colunas[col_apq] = st.column_config.SelectboxColumn(
