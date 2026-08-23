@@ -1,465 +1,621 @@
-import streamlit as str_lit
+import streamlit as st
 import pandas as pd
 import sqlite3
+from pathlib import Path
+from datetime import datetime, date
 
-# Configuração da página (deve ser a primeira instrução)
-str_lit.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
+# ============================================================
+# CONFIGURAÇÃO
+# ============================================================
+st.set_page_config(
+    page_title="Dashboard Refugos - WEG UFE",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-# Estilos customizados (Fundo branco para tabela, texto escuro e container do cabeçalho)
-str_lit.markdown("""
-    <style>
-    .block-container {
-        padding-top: 1rem !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-        max-width: 100% !important;
-    }
+DB_PATH = Path("refugos_weg.db")
+TABLE_NAME = "tabela_notas"
 
-    .header-container {
-        position: relative;
-        background-image: linear-gradient(rgba(10, 25, 47, 0.88), rgba(10, 25, 47, 0.88)), 
-                          url('https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=1600&q=80');
-        background-size: cover;
-        background-position: center;
-        padding: 35px 40px;
-        border-radius: 0px 0px 12px 12px;
-        color: white;
-        margin-left: -2rem;
-        margin-right: -2rem;
-        margin-top: -4rem;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    .header-title {
-        font-size: 2.2rem;
-        font-weight: 700;
-        margin: 0;
-        color: #ffffff;
-    }
-    .header-subtitle {
-        font-size: 1rem;
-        color: #94a3b8;
-        margin-top: 5px;
-    }
+# ============================================================
+# ESTILO
+# ============================================================
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 1rem !important;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
+    max-width: 100% !important;
+}
 
-    [data-testid="collapsedControl"] {
-        position: fixed !important;
-        top: 15px !important;
-        right: 20px !important;
-        z-index: 999999 !important;
-        background-color: #0a192f !important;
-        border-radius: 5px;
-        color: white !important;
-    }
-    [data-testid="collapsedControl"] svg {
-        fill: white !important;
-    }
-    
-    /* Estilos CSS para fundo branco e contraste na tabela */
-    .tabela-container-wrapper {
-        overflow-x: auto; 
-        max-height: 480px; 
-        border: 1px solid #cbd5e1; 
-        border-radius: 8px;
-        background-color: #ffffff;
-    }
+.header-container {
+    position: relative;
+    background-image:
+        linear-gradient(rgba(10,25,47,.88), rgba(10,25,47,.88)),
+        url('https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=1600&q=80');
+    background-size: cover;
+    background-position: center;
+    padding: 35px 40px;
+    border-radius: 0 0 12px 12px;
+    color: white;
+    margin-left: -2rem;
+    margin-right: -2rem;
+    margin-top: -4rem;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0,0,0,.3);
+}
 
-    #tabela-refugos {
-        width: 100%; 
-        border-collapse: collapse; 
-        font-family: sans-serif; 
-        font-size: 14px; 
-        color: #1e293b !important;
-        background-color: #ffffff !important;
-    }
+.header-title {
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin: 0;
+    color: #fff;
+}
 
-    #tabela-refugos thead tr {
-        background-color: #f1f5f9 !important; 
-        border-bottom: 2px solid #cbd5e1 !important; 
-        position: sticky; 
-        top: 0; 
-        z-index: 1;
-        color: #0f172a !important;
-    }
+.header-subtitle {
+    font-size: 1rem;
+    color: #94a3b8;
+    margin-top: 5px;
+}
 
-    #tabela-refugos tbody tr {
-        border-bottom: 1px solid #e2e8f0 !important;
-        background-color: #ffffff !important;
-    }
+[data-testid="collapsedControl"] {
+    position: fixed !important;
+    top: 15px !important;
+    right: 20px !important;
+    z-index: 999999 !important;
+    background-color: #0a192f !important;
+    border-radius: 5px;
+    color: white !important;
+}
 
-    #tabela-refugos tbody tr:hover {
-        background-color: #f8fafc !important;
-    }
+[data-testid="collapsedControl"] svg {
+    fill: white !important;
+}
+</style>
 
-    /* Estilo interativo do APQ com cursor pointer obrigatório */
-    .apq-toggle {
-        font-weight: bold;
-        cursor: pointer !important;
-        padding: 4px 8px;
-        border-radius: 4px;
-        user-select: none;
-        display: inline-block;
-        transition: background 0.2s;
-    }
-    .apq-toggle:hover {
-        background-color: rgba(0, 0, 0, 0.05);
-    }
-    </style>
-    
-    <div class="header-container">
-        <div class="header-title">⚙️ Dashboard de Refugos - WEG UFE</div>
-        <div class="header-subtitle">Gestão de Apontamentos da Aba "Notas" e Perdas Operacionais</div>
+<div class="header-container">
+    <div class="header-title">⚙️ Dashboard de Refugos - WEG UFE</div>
+    <div class="header-subtitle">
+        Gestão de Apontamentos da Aba "Notas" e Perdas Operacionais
     </div>
+</div>
 """, unsafe_allow_html=True)
 
-# Inicializa o banco de dados
-def init_db():
-    conn = sqlite3.connect('refugos_weg.db', timeout=10)
-    conn.close()
 
-init_db()
+# ============================================================
+# BANCO DE DADOS
+# ============================================================
+def get_connection():
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
 
-# ==================== MENU LATERAL ====================
-with str_lit.sidebar:
-    str_lit.header("🛠️ Menu de Opções")
-    
-    with str_lit.expander("📂 Importar e Gerenciar Dados", expanded=False):
-        uploaded_file = str_lit.file_uploader("Enviar Planilha (.xlsm, .xlsx)", type=["xlsx", "xls", "xlsm"])
-        if uploaded_file is not None:
-            try:
-                df_novo = pd.read_excel(uploaded_file, sheet_name='Notas', engine='openpyxl')
-                df_novo.columns = [str(c).strip().lower() for c in df_novo.columns]
 
-                conn = sqlite3.connect('refugos_weg.db', timeout=10)
-                df_novo.to_sql('tabela_notas', conn, if_exists='replace', index=False)
-                conn.close()
-                str_lit.success("Aba 'Notas' importada com sucesso!")
-                str_lit.rerun()
-            except Exception as e:
-                str_lit.error(f"Erro ao importar a aba 'Notas'. Detalhe: {e}")
-
-    with str_lit.expander("📄 Gerar Relatórios", expanded=False):
-        if str_lit.button("Gerar PDF com Gráficos"):
-            str_lit.info("Função de relatório gráfico pronta.")
-        if str_lit.button("Gerar PDF para Reunião de Turno"):
-            str_lit.info("Relatório executivo gerado.")
-
-    str_lit.divider()
-    str_lit.subheader("🔍 Filtros de Análise")
-
-# Carrega os dados do banco
-try:
-    conn = sqlite3.connect('refugos_weg.db', timeout=10)
-    df = pd.read_sql('SELECT rowid, * FROM tabela_notas', conn)
-    conn.close()
-except:
-    df = pd.DataFrame()
-
-if not df.empty:
-    cols_normalizadas = {c: ('rowid' if c == 'rowid' else str(c).strip().lower()) for c in df.columns}
-    df = df.rename(columns=cols_normalizadas)
-
-    def encontra_coluna(termos):
-        for t in termos:
-            for c in df.columns:
-                if t in c:
-                    return c
-        return None
-
-    col_secao = encontra_coluna(['seção', 'secao'])
-    col_defeito = encontra_coluna(['defeito'])
-    col_nota = encontra_coluna(['nota'])
-    col_data = encontra_coluna(['data'])
-    col_turno = encontra_coluna(['turno'])
-    col_material = encontra_coluna(['material'])
-    col_desc_mat = encontra_coluna(['descrição do material', 'descricao do material'])
-    col_ct = encontra_coluna(['ct causador'])
-    col_qtd = encontra_coluna(['quantidade'])
-    col_desc_feito = encontra_coluna(['descrição do feito', 'descricao do feito', 'descrição do defeito', 'descricao do defeito'])
-    col_causa = encontra_coluna(['causa'])
-    col_texto_causa = encontra_coluna(['texto da causa'])
-    col_custo = encontra_coluna(['custo'])
-    
-    col_obs = encontra_coluna(['observaçao', 'observacao', 'informacoes', 'informações'])
-    col_acao = encontra_coluna(['ação', 'acao'])
-    col_colab = encontra_coluna(['colaborador', 'colcaborador'])
-    col_prep = encontra_coluna(['preparador'])
-    col_apq = encontra_coluna(['apq'])
-
-    if not col_obs and 'observacao' not in df.columns:
-        df['observacao'] = ""
-        col_obs = 'observacao'
-    if not col_acao and 'acao' not in df.columns:
-        df['acao'] = ""
-        col_acao = 'acao'
-    if not col_colab and 'colaborador' not in df.columns:
-        df['colaborador'] = ""
-        col_colab = 'colaborador'
-    if not col_prep and 'preparador' not in df.columns:
-        df['preparador'] = ""
-        col_prep = 'preparador'
-    if not col_apq and 'apq' not in df.columns:
-        df['apq'] = "Pendente"
-        col_apq = 'apq'
-    else:
-        df[col_apq] = df[col_apq].fillna("Pendente").apply(
-            lambda x: "Concluída" if str(x).strip().lower() in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true'] else "Pendente"
+def table_exists():
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (TABLE_NAME,),
         )
-
-    def limpa_inteiro(val):
-        if pd.notna(val):
-            try:
-                return str(int(float(val)))
-            except:
-                return str(val)
-        return ""
-
-    def formata_custo(val):
-        if pd.notna(val):
-            try:
-                return f"{float(val):.2f}".replace('.', ',')
-            except:
-                return str(val)
-        return ""
-
-    def trata_nulos(val):
-        if pd.isna(val) or val is None or str(val).strip().lower() in ['none', 'nan', 'undefined', 'null']:
-            return ""
-        return str(val)
-
-    def obs_esta_vazia(val):
-        if val is None or pd.isna(val):
-            return True
-        s = str(val).strip().lower()
-        if s in ['', 'none', 'nan', 'undefined', 'null']:
-            return True
-        return False
-
-    # ==================== FILTROS NA BARRA LATERAL ====================
-    with str_lit.sidebar:
-        pesquisa_nota = str_lit.text_input("Pesquisar Nota:")
-
-        secoes_opcoes = ["Todas"] + sorted(df[col_secao].dropna().astype(str).unique().tolist()) if col_secao else ["Todas"]
-        filtro_secao = str_lit.selectbox("Seção", secoes_opcoes)
-
-        turnos_opcoes = ["Todos"] + sorted(df[col_turno].dropna().astype(str).unique().tolist()) if col_turno else ["Todos"]
-        filtro_turno = str_lit.selectbox("Turno", turnos_opcoes)
-
-        if col_data:
-            df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
-            df['__ano__'] = df[col_data].dt.year
-            df['__mes__'] = df[col_data].dt.month
-
-        meses_opcoes = ["Todos"] + sorted(df['__mes__'].dropna().astype(int).astype(str).unique().tolist()) if '__mes__' in df.columns else ["Todos"]
-        filtro_mes = str_lit.selectbox("Mês", meses_opcoes)
-
-        anos_opcoes = ["Todos"] + sorted(df['__ano__'].dropna().astype(int).astype(str).unique().tolist()) if '__ano__' in df.columns else ["Todos"]
-        filtro_ano = str_lit.selectbox("Ano", anos_opcoes)
-
-        colab_opcoes = ["Todos"] + sorted(df[col_colab].dropna().astype(str).unique().tolist()) if col_colab else ["Todos"]
-        filtro_colab = str_lit.selectbox("Colaborador", colab_opcoes)
-
-        if col_data:
-            str_lit.write("Período de Data:")
-            min_d = df[col_data].min().date() if not df[col_data].isnull().all() else pd.to_datetime("2026-01-01").date()
-            max_d = df[col_data].max().date() if not df[col_data].isnull().all() else pd.to_datetime("2026-12-31").date()
-            data_ini = str_lit.date_input("Data Inicial", min_d)
-            data_fim = str_lit.date_input("Data Final", max_d)
-
-    # Aplicando os filtros
-    df_filtrado = df.copy()
-
-    if pesquisa_nota and col_nota:
-        df_filtrado = df_filtrado[df_filtrado[col_nota].astype(str).str.contains(pesquisa_nota, case=False, na=False)]
-    if filtro_secao != "Todas" and col_secao:
-        df_filtrado = df_filtrado[df_filtrado[col_secao].astype(str) == filtro_secao]
-    if filtro_turno != "Todos" and col_turno:
-        df_filtrado = df_filtrado[df_filtrado[col_turno].astype(str) == filtro_turno]
-    if filtro_mes != "Todos" and '__mes__' in df_filtrado.columns:
-        df_filtrado = df_filtrado[df_filtrado['__mes__'].astype(str) == filtro_mes]
-    if filtro_ano != "Todos" and '__ano__' in df_filtrado.columns:
-        df_filtrado = df_filtrado[df_filtrado['__ano__'].astype(str) == filtro_ano]
-    if filtro_colab != "Todos" and col_colab:
-        df_filtrado = df_filtrado[df_filtrado[col_colab].astype(str) == filtro_colab]
-    if col_data and 'data_ini' in locals() and 'data_fim' in locals():
-        df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
-
-    if col_nota:
-        df_filtrado['__nota_com_alerta__'] = df_filtrado.apply(
-            lambda row: f"⚠️ {limpa_inteiro(row[col_nota])}" if obs_esta_vazia(row[col_obs]) else limpa_inteiro(row[col_nota]),
-            axis=1
-        )
-
-    # ==================== DIÁLOGO / MODAL DE EDIÇÃO NATIVO ====================
-    @str_lit.dialog("✏️ Editar Registro de Nota")
-    def modal_edicao(rowid):
-        conn = sqlite3.connect('refugos_weg.db', timeout=10)
-        df_row = pd.read_sql(f'SELECT rowid, * FROM tabela_notas WHERE rowid = {rowid}', conn)
+        return cur.fetchone() is not None
+    finally:
         conn.close()
 
-        if not df_row.empty:
-            r = df_row.iloc[0]
-            
-            str_lit.write(f"Editando dados referentes ao registro ID: **{rowid}**")
-            
-            with str_lit.form(key=f"form_modal_{rowid}"):
-                val_obs = str_lit.text_input("Observação", value=str(r.get(col_obs, '')) if col_obs in df_row.columns else "")
-                val_acao = str_lit.text_input("Ação", value=str(r.get(col_acao, '')) if col_acao in df_row.columns else "")
-                val_colab = str_lit.text_input("Colaborador", value=str(r.get(col_colab, '')) if col_colab in df_row.columns else "")
-                
-                # Tratamento do APQ no modal
-                apq_atual = str(r.get(col_apq, 'Pendente'))
-                status_apq_idx = 0 if apq_atual.lower() in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true'] else 1
-                val_apq = str_lit.selectbox("Status APQ", ["Concluída", "Pendente"], index=status_apq_idx)
 
-                submitted = str_lit.form_submit_button("Salvar Alterações")
-                if submitted:
-                    conn = sqlite3.connect('refugos_weg.db', timeout=10)
-                    sql_update = f"UPDATE tabela_notas SET {col_obs} = ?, {col_acao} = ?, {col_colab} = ?, {col_apq} = ? WHERE rowid = ?"
-                    conn.execute(sql_update, (val_obs, val_acao, val_colab, val_apq, rowid))
-                    conn.commit()
-                    conn.close()
-                    
-                    str_lit.success("Alterações salvas com sucesso!")
-                    str_lit.rerun()
+def load_data():
+    if not table_exists():
+        return pd.DataFrame()
 
-    # Verifica se foi solicitado abrir a edição via query params
-    query_params = str_lit.query_params
-    edit_id = query_params.get("edit_rowid", None)
-    if edit_id:
-        # Limpa o param para evitar loops e abre o dialog nativo
-        str_lit.query_params.clear()
-        modal_edicao(int(edit_id))
+    conn = get_connection()
+    try:
+        return pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
+    except Exception:
+        return pd.DataFrame()
+    finally:
+        conn.close()
 
-    # ==================== EXIBIÇÃO DA TABELA HTML ====================
-    str_lit.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
-    str_lit.markdown("💡 **Instruções:** Clique na palavra **APQ** para alternar instantaneamente entre **Vermelho (Pendente)** e **Verde (Concluído)**. Clique no botão **Editar** para abrir o pop-up de edição.")
 
-    mapeamento_colunas = {
-        col_secao: "Seção",
-        col_defeito: "Defeito",
-        col_nota: "Nota",
-        col_data: "Data",
-        col_turno: "Turno",
-        col_material: "Material",
-        col_desc_mat: "Descrição Material",
-        col_ct: "CT Causador",
-        col_qtd: "Quantidade",
-        col_desc_feito: "Descrição Defeito",
-        col_causa: "Causa",
-        col_texto_causa: "Texto Causa",
-        col_custo: "Custo",
-        col_obs: "Observação",
-        col_acao: "Ação",
-        col_colab: "Colaborador",
-        col_prep: "Preparador",
-        col_apq: "APQ",
-        "acao_editar": "Ações"
-    }
+# ============================================================
+# UTILITÁRIOS
+# ============================================================
+def normalize_columns(df):
+    df = df.copy()
+    df.columns = [
+        str(c).strip().lower().replace("\n", " ")
+        for c in df.columns
+    ]
+    return df
 
-    html_tabela = """
-    <div class="tabela-container-wrapper">
-    <style>
-        .btn-editar {
-            background-color: #3b82f6;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 600;
-            transition: background 0.2s;
-        }
-        .btn-editar:hover {
-            background-color: #2563eb;
-        }
-    </style>
-    <table id="tabela-refugos">
-      <thead>
-        <tr>
+
+def find_column(df, terms):
+    for term in terms:
+        term = term.lower()
+        for col in df.columns:
+            if term in str(col).lower():
+                return col
+    return None
+
+
+def ensure_column(df, column_name, default=""):
+    if column_name not in df.columns:
+        df[column_name] = default
+    return column_name
+
+
+def parse_date_series(series):
     """
-    
-    colunas_validas = [k for k in mapeamento_colunas.keys() if k is not None]
-    
-    for k in colunas_validas:
-        nome_cab = mapeamento_colunas[k]
-        html_tabela += f'<th style="padding: 12px 10px; text-align: left; font-weight: 600;">{nome_cab}</th>'
-    html_tabela += "</tr></thead><tbody>"
-
-    for idx, row in df_filtrado.iterrows():
-        r_id = row['rowid']
-        html_tabela += f'<tr onclick="selecionarLinha(this)" data-rowid="{r_id}">'
-        
-        for k in colunas_validas:
-            if k == "acao_editar":
-                val = f'<button class="btn-editar" onclick="abrirEdicao({r_id})">✏️ Editar</button>'
-            elif k == col_nota:
-                val = str(row['__nota_com_alerta__']) if '__nota_com_alerta__' in row else str(row[k])
-            elif k == col_apq:
-                raw_apq = str(row[k]).strip().lower()
-                is_concluida = raw_apq in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true']
-                cor_inicial = "#27ae60" if is_concluida else "#e74c3c"
-                status_inicial = "concluido" if is_concluida else "pendente"
-                
-                val = f'<span class="apq-toggle" data-status="{status_inicial}" style="color: {cor_inicial};">APQ</span>'
-            else:
-                val = trata_nulos(row[k])
-                if k == col_custo and pd.notna(row[k]):
-                    val = formata_custo(row[k])
-            
-            html_tabela += f'<td style="padding: 10px 10px; white-space: nowrap;">{val}</td>'
-        html_tabela += "</tr>"
-
-    html_tabela += """
-      </tbody>
-    </table>
-    </div>
-
-    <script>
-    function selecionarLinha(tr) {
-        var rows = tr.parentElement.getElementsByTagName('tr');
-        for (var i = 0; i < rows.length; i++) {
-            rows[i].style.backgroundColor = '';
-        }
-        tr.style.backgroundColor = '#f1f5f9';
-    }
-
-    function abrirEdicao(rowid) {
-        const queryParams = new URLSearchParams(window.location.search);
-        queryParams.set('edit_rowid', rowid);
-        window.history.replaceState(null, '', '?' + queryParams.toString());
-        window.parent.document.dispatchEvent(new Event('streamlit:rerun'));
-    }
-
-    document.addEventListener("click", function(event) {
-        if (event.target && event.target.classList.contains("apq-toggle")) {
-            event.stopPropagation();
-            
-            const el = event.target;
-            const statusAtual = el.getAttribute("data-status");
-
-            if (statusAtual === "pendente") {
-                el.style.color = "#27ae60";
-                el.setAttribute("data-status", "concluido");
-            } else {
-                el.style.color = "#e74c3c";
-                el.setAttribute("data-status", "pendente");
-            }
-        }
-    });
-    </script>
+    Tenta interpretar datas vindas de Excel/SAP.
+    Aceita datas reais, dd/mm/yyyy, dd.mm.yyyy e outros formatos
+    reconhecidos pelo pandas.
     """
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return pd.to_datetime(series, errors="coerce")
 
-    str_lit.markdown(html_tabela, unsafe_allow_html=True)
+    result = pd.to_datetime(series, errors="coerce", dayfirst=True)
 
-    str_lit.divider()
-    if str_lit.sidebar.button("🗑️ Limpar Banco de Dados"):
-        conn = sqlite3.connect('refugos_weg.db', timeout=10)
-        conn.execute('DROP TABLE IF EXISTS tabela_notas')
+    # Segunda tentativa para valores que possam ter vindo como string
+    mask = result.isna()
+    if mask.any():
+        result.loc[mask] = pd.to_datetime(
+            series.loc[mask].astype(str).str.replace(".", "/", regex=False),
+            errors="coerce",
+            dayfirst=True,
+        )
+
+    return result
+
+
+def safe_identifier(name):
+    """
+    Valida identificadores SQL para impedir que nomes inesperados de
+    colunas sejam inseridos diretamente no SQL.
+    """
+    name = str(name)
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ ")
+    if not name or any(ch not in allowed for ch in name):
+        raise ValueError(f"Nome de coluna inválido: {name}")
+    return '"' + name.replace('"', '""') + '"'
+
+
+def prepare_dataframe(df):
+    df = normalize_columns(df)
+
+    # Campos utilizados pelo Dashboard
+    col_obs = find_column(df, ["observaçao", "observacao", "informacoes", "informações"])
+    col_acao = find_column(df, ["ação", "acao"])
+    col_colab = find_column(df, ["colaborador", "colcaborador"])
+    col_apq = find_column(df, ["apq"])
+
+    col_obs = ensure_column(df, col_obs or "observacao", "")
+    col_acao = ensure_column(df, col_acao or "acao", "")
+    col_colab = ensure_column(df, col_colab or "colaborador", "")
+    col_apq = ensure_column(df, col_apq or "apq", "Pendente")
+
+    df[col_apq] = (
+        df[col_apq]
+        .fillna("Pendente")
+        .astype(str)
+        .apply(
+            lambda x: "Concluída"
+            if x.strip().lower()
+            in {"concluída", "concluida", "concluido", "sim", "1", "true"}
+            else "Pendente"
+        )
+    )
+
+    return df, {
+        "secao": find_column(df, ["seção", "secao"]),
+        "defeito": find_column(df, ["defeito"]),
+        "nota": find_column(df, ["nota"]),
+        "data": find_column(df, ["data"]),
+        "turno": find_column(df, ["turno"]),
+        "material": find_column(df, ["material"]),
+        "desc_mat": find_column(df, ["descrição do material", "descricao do material"]),
+        "ct": find_column(df, ["ct causador"]),
+        "qtd": find_column(df, ["quantidade"]),
+        "desc_feito": find_column(
+            df,
+            [
+                "descrição do feito",
+                "descricao do feito",
+                "descrição do defeito",
+                "descricao do defeito",
+            ],
+        ),
+        "causa": find_column(df, ["causa"]),
+        "texto_causa": find_column(df, ["texto da causa"]),
+        "custo": find_column(df, ["custo"]),
+        "obs": col_obs,
+        "acao": col_acao,
+        "colab": col_colab,
+        "prep": find_column(df, ["preparador"]),
+        "apq": col_apq,
+    }
+
+
+def import_excel(uploaded_file):
+    suffix = Path(uploaded_file.name).suffix.lower()
+
+    if suffix == ".xls":
+        # xlrd é necessário para arquivos XLS antigos.
+        return pd.read_excel(uploaded_file, sheet_name="Notas")
+
+    return pd.read_excel(
+        uploaded_file,
+        sheet_name="Notas",
+        engine="openpyxl",
+    )
+
+
+def save_imported_dataframe(df):
+    conn = get_connection()
+    try:
+        df.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ============================================================
+# MENU LATERAL
+# ============================================================
+with st.sidebar:
+    st.header("🛠️ Menu de Opções")
+
+    with st.expander("📂 Importar e Gerenciar Dados", expanded=False):
+        uploaded_file = st.file_uploader(
+            "Enviar Planilha (.xlsx, .xlsm, .xls)",
+            type=["xlsx", "xls", "xlsm"],
+        )
+
+        if uploaded_file is not None:
+            if st.button("📥 Importar Aba 'Notas'", type="primary"):
+                try:
+                    df_novo = import_excel(uploaded_file)
+
+                    if df_novo.empty:
+                        st.warning("A aba 'Notas' está vazia.")
+                    else:
+                        df_novo = normalize_columns(df_novo)
+                        save_imported_dataframe(df_novo)
+                        st.success(
+                            f"✅ {len(df_novo):,} registros importados com sucesso."
+                        )
+                        st.rerun()
+
+                except ImportError:
+                    st.error(
+                        "Para arquivos .xls antigos, instale o pacote 'xlrd'."
+                    )
+                except ValueError as e:
+                    st.error(f"Erro na planilha: {e}")
+                except Exception as e:
+                    st.error(f"Erro ao importar a aba 'Notas': {e}")
+
+    with st.expander("📄 Gerar Relatórios", expanded=False):
+        st.info(
+            "A estrutura está preparada para receber os módulos de PDF, "
+            "gráficos e relatório executivo."
+        )
+        st.button("Gerar PDF com Gráficos", disabled=True)
+        st.button("Gerar PDF para Reunião de Turno", disabled=True)
+
+    st.divider()
+
+    st.subheader("🔍 Filtros de Análise")
+
+
+# ============================================================
+# CARREGAMENTO
+# ============================================================
+df = load_data()
+
+if df.empty:
+    st.warning(
+        "⚠️ O banco de dados está vazio. "
+        "Abra o menu no canto superior direito, entre em "
+        "'📂 Importar e Gerenciar Dados' e envie a planilha."
+    )
+    st.stop()
+
+df, columns = prepare_dataframe(df)
+
+col_secao = columns["secao"]
+col_nota = columns["nota"]
+col_data = columns["data"]
+col_turno = columns["turno"]
+col_colab = columns["colab"]
+col_obs = columns["obs"]
+col_acao = columns["acao"]
+col_apq = columns["apq"]
+
+
+# ============================================================
+# TRATAMENTO DE DATA
+# ============================================================
+if col_data:
+    df[col_data] = parse_date_series(df[col_data])
+    df["__ano__"] = df[col_data].dt.year.astype("Int64")
+    df["__mes__"] = df[col_data].dt.month.astype("Int64")
+
+
+# ============================================================
+# FILTROS
+# ============================================================
+with st.sidebar:
+    pesquisa_nota = st.text_input("Pesquisar Nota:")
+
+    secoes = (
+        ["Todas"]
+        + sorted(
+            df[col_secao].dropna().astype(str).str.strip().unique().tolist()
+        )
+        if col_secao
+        else ["Todas"]
+    )
+    filtro_secao = st.selectbox("Seção", secoes)
+
+    turnos = (
+        ["Todos"]
+        + sorted(
+            df[col_turno].dropna().astype(str).str.strip().unique().tolist()
+        )
+        if col_turno
+        else ["Todos"]
+    )
+    filtro_turno = st.selectbox("Turno", turnos)
+
+    if col_data:
+        meses = (
+            ["Todos"]
+            + [
+                str(int(x))
+                for x in sorted(df["__mes__"].dropna().unique())
+            ]
+        )
+        filtro_mes = st.selectbox("Mês", meses)
+
+        anos = (
+            ["Todos"]
+            + [
+                str(int(x))
+                for x in sorted(df["__ano__"].dropna().unique())
+            ]
+        )
+        filtro_ano = st.selectbox("Ano", anos)
+    else:
+        filtro_mes = "Todos"
+        filtro_ano = "Todos"
+
+    colaboradores = (
+        ["Todos"]
+        + sorted(
+            df[col_colab].dropna().astype(str).str.strip().unique().tolist()
+        )
+        if col_colab
+        else ["Todos"]
+    )
+    filtro_colab = st.selectbox("Colaborador", colaboradores)
+
+    if col_data and not df[col_data].dropna().empty:
+        st.write("Período de Data:")
+
+        min_d = df[col_data].min().date()
+        max_d = df[col_data].max().date()
+
+        data_ini = st.date_input(
+            "Data Inicial",
+            value=min_d,
+            min_value=min_d,
+            max_value=max_d,
+        )
+
+        data_fim = st.date_input(
+            "Data Final",
+            value=max_d,
+            min_value=min_d,
+            max_value=max_d,
+        )
+
+        if data_ini > data_fim:
+            st.error("A Data Inicial não pode ser maior que a Data Final.")
+
+
+# ============================================================
+# APLICAÇÃO DOS FILTROS
+# ============================================================
+df_filtrado = df.copy()
+
+if pesquisa_nota and col_nota:
+    df_filtrado = df_filtrado[
+        df_filtrado[col_nota]
+        .astype(str)
+        .str.contains(pesquisa_nota, case=False, na=False)
+    ]
+
+if filtro_secao != "Todas" and col_secao:
+    df_filtrado = df_filtrado[
+        df_filtrado[col_secao].astype(str).str.strip() == filtro_secao
+    ]
+
+if filtro_turno != "Todos" and col_turno:
+    df_filtrado = df_filtrado[
+        df_filtrado[col_turno].astype(str).str.strip() == filtro_turno
+    ]
+
+if filtro_mes != "Todos" and "__mes__" in df_filtrado.columns:
+    df_filtrado = df_filtrado[
+        df_filtrado["__mes__"].astype("Int64").astype(str) == filtro_mes
+    ]
+
+if filtro_ano != "Todos" and "__ano__" in df_filtrado.columns:
+    df_filtrado = df_filtrado[
+        df_filtrado["__ano__"].astype("Int64").astype(str) == filtro_ano
+    ]
+
+if filtro_colab != "Todos" and col_colab:
+    df_filtrado = df_filtrado[
+        df_filtrado[col_colab].astype(str).str.strip() == filtro_colab
+    ]
+
+if (
+    col_data
+    and "data_ini" in locals()
+    and "data_fim" in locals()
+    and data_ini <= data_fim
+):
+    df_filtrado = df_filtrado[
+        (df_filtrado[col_data].dt.date >= data_ini)
+        & (df_filtrado[col_data].dt.date <= data_fim)
+    ]
+
+
+# ============================================================
+# INDICADORES RESUMIDOS
+# ============================================================
+st.subheader(f"📊 Registros Encontrados ({len(df_filtrado):,})")
+
+c1, c2, c3, c4 = st.columns(4)
+
+with c1:
+    st.metric("Registros", f"{len(df_filtrado):,}")
+
+with c2:
+    if col_nota:
+        st.metric(
+            "Notas",
+            f"{df_filtrado[col_nota].nunique(dropna=True):,}",
+        )
+    else:
+        st.metric("Notas", "N/D")
+
+with c3:
+    if col_apq:
+        concluidas = (
+            df_filtrado[col_apq].astype(str).str.lower().eq("concluída").sum()
+        )
+        st.metric("APQ Concluídas", f"{concluidas:,}")
+    else:
+        st.metric("APQ Concluídas", "N/D")
+
+with c4:
+    if col_apq:
+        pendentes = (
+            df_filtrado[col_apq].astype(str).str.lower().eq("pendente").sum()
+        )
+        st.metric("APQ Pendentes", f"{pendentes:,}")
+    else:
+        st.metric("APQ Pendentes", "N/D")
+
+
+# ============================================================
+# TABELA EDITÁVEL
+# ============================================================
+st.markdown(
+    "💡 **Edição:** altere diretamente **Observação**, **Ação**, "
+    "**Colaborador** e **APQ**. Depois clique em **Salvar Alterações**."
+)
+
+cols_para_exibir = [
+    c for c in df_filtrado.columns
+    if c not in ["__ano__", "__mes__"]
+]
+
+df_para_editar = df_filtrado[cols_para_exibir].copy()
+
+df_editado = st.data_editor(
+    df_para_editar,
+    use_container_width=True,
+    hide_index=True,
+    num_rows="fixed",
+    column_config={
+        col_apq: st.column_config.SelectboxColumn(
+            "APQ (Status)",
+            help="Selecione o status de conclusão",
+            options=["Concluída", "Pendente"],
+            required=True,
+        )
+    },
+    key="editor_tabela_refugos",
+)
+
+
+# ============================================================
+# SALVAR ALTERAÇÕES
+# ============================================================
+if st.button("💾 Salvar Alterações no Banco", type="primary"):
+    try:
+        if "rowid" not in df_editado.columns:
+            raise ValueError("A coluna interna rowid não foi encontrada.")
+
+        conn = get_connection()
+
+        for _, row in df_editado.iterrows():
+            row_id = int(row["rowid"])
+
+            valores = (
+                row.get(col_obs, ""),
+                row.get(col_acao, ""),
+                row.get(col_colab, ""),
+                row.get(col_apq, "Pendente"),
+                row_id,
+            )
+
+            sql = f"""
+                UPDATE {safe_identifier(TABLE_NAME)}
+                SET
+                    {safe_identifier(col_obs)} = ?,
+                    {safe_identifier(col_acao)} = ?,
+                    {safe_identifier(col_colab)} = ?,
+                    {safe_identifier(col_apq)} = ?
+                WHERE rowid = ?
+            """
+
+            conn.execute(sql, valores)
+
         conn.commit()
         conn.close()
-        str_lit.rerun()
 
-else:
-    str_lit.warning("⚠️ O banco de dados está vazio. Clique no ícone de menu (3 barrinhas) no canto superior direito, abra '📂 Importar e Gerenciar Dados' e envie a planilha.")
+        st.success("✅ Alterações salvas no banco de dados com sucesso!")
+        st.rerun()
+
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+        st.error(f"❌ Erro ao salvar alterações: {e}")
+
+
+# ============================================================
+# LIMPEZA DO BANCO
+# ============================================================
+st.divider()
+
+with st.sidebar:
+    st.subheader("⚠️ Administração")
+
+    if st.button("🗑️ Limpar Banco de Dados"):
+        st.warning(
+            "Esta operação apagará todos os registros da tabela importada."
+        )
+
+        if st.session_state.get("confirmar_limpeza", False):
+            conn = get_connection()
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS {safe_identifier(TABLE_NAME)}")
+                conn.commit()
+            finally:
+                conn.close()
+
+            st.session_state["confirmar_limpeza"] = False
+            st.success("Banco de dados limpo.")
+            st.rerun()
+        else:
+            st.session_state["confirmar_limpeza"] = True
+            st.rerun()
+
+    if st.session_state.get("confirmar_limpeza", False):
+        st.error("⚠️ Clique novamente para confirmar a limpeza definitiva.")
