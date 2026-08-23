@@ -201,7 +201,7 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # ==================== POP-UP DE EDIÇÃO DA NOTA (COMPACTO E LIMPO) ====================
+    # ==================== POP-UP DE EDIÇÃO DA NOTA ====================
     @st.dialog("✏️", width="large")
     def modal_edicao(rowid_alvo):
         linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
@@ -288,11 +288,11 @@ if not df.empty:
                     conn.close()
                     
                     st.success("Nota atualizada com sucesso!")
-                    st.rerun() # O st.rerun fecha o modal e recarrega a tela limpa
+                    st.rerun() # Fecha o pop-up e recarrega os dados salvos
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
 
-    # ==================== EXIBIÇÃO DA TABELA ÚNICA COM BOTÃO DE EDIÇÃO NO FINAL ====================
+    # ==================== EXIBIÇÃO DA TABELA LIMPA COM BOTÕES DE AÇÃO NO FINAL ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
 
     mapeamento_colunas = {
@@ -315,28 +315,30 @@ if not df.empty:
         col_prep: "preparador"
     }
 
-    # Organiza as colunas e coloca o botão "Editar" por último (no final da lista)
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
-    df_exibicao["⚙️ Ações"] = "✏️ Editar"
 
-    evento_selecao = st.dataframe(
-        df_exibicao.drop(columns=['rowid']),
-        use_container_width=True,
-        hide_index=True,
-        height=450,
-        selection_mode="single-row",
-        on_select="rerun",
-        column_config={
-            "⚙️ Ações": st.column_config.TextColumn("⚙️ Ações", help="Clique na linha e abra o pop-up de edição")
-        }
-    )
-
-    # Dispara a abertura do pop-up quando a linha inteira for selecionada ou clicada (incluindo duplo clique)
-    if evento_selecao and evento_selecao.selection.rows:
-        linha_selecionada_idx = evento_selecao.selection.rows[0]
-        r_id_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
-        modal_edicao(r_id_selecionado)
+    # Criação iterativa de linhas com um botão de edição dedicado no final de cada registro
+    for idx, row in df_exibicao.iterrows():
+        r_id = row['rowid']
+        cols_dados = st.columns([1] * len(df_exibicao.columns[1:]) + [0.8])
+        
+        # Exibe os campos de cada linha sem checkbox
+        for i, col_name in enumerate(df_exibicao.columns[1:]):
+            valor_celula = row[col_name]
+            # Limpa formatação visual de data/número se necessário
+            if pd.notna(valor_celula):
+                val_str = str(valor_celula)
+            else:
+                val_str = ""
+            cols_dados[i].write(val_str)
+            
+        # Botão de edição localizado exatamente no final da linha
+        with cols_dados[-1]:
+            if st.button("✏️ Editar", key=f"btn_edit_{r_id}"):
+                modal_edicao(r_id)
+        
+        st.divider()
 
     # Botão de limpeza do banco
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
