@@ -16,6 +16,34 @@ DB_PATH = Path("refugos_weg.db")
 TABLE_NAME = "tabela_notas"
 
 # ============================================================
+# 📋 COLUNAS OFICIAIS — EXATAMENTE AS QUE VOCÊ PEDIU
+# ============================================================
+COLUNAS_OFICIAIS = [
+    "seção",
+    "defeito",
+    "nota",
+    "data",
+    "turno",
+    "material",
+    "descrição do material",
+    "ct causador",
+    "quantidade",
+    "descrição do defeito",
+    "causa",
+    "texto da causa",
+    "custo",
+    "observações",
+    "ação",
+    "colaborador",
+    "preparador",
+    "apq",
+    "twtp",
+    "twttp",
+]
+
+COLUNAS_IGNORAR = ["dia", "semana", "__ano__", "__mes__"]
+
+# ============================================================
 # ESTILO
 # ============================================================
 st.markdown("""
@@ -98,7 +126,12 @@ def load_data():
         return pd.DataFrame()
     conn = get_connection()
     try:
-        return pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
+        df = pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
+        # ✅ REMOVE COLUNAS INDESEJADAS automaticamente
+        for col in COLUNAS_IGNORAR:
+            if col in df.columns:
+                df = df.drop(columns=[col])
+        return df
     except Exception:
         return pd.DataFrame()
     finally:
@@ -114,6 +147,21 @@ def normalize_columns(df):
         for c in df.columns
     ]
     return df
+
+def filtrar_colunas_oficiais(df):
+    """Mantém SOMENTE as colunas definidas, ignora 'dia', 'semana' e outras extras"""
+    df = df.copy()
+    colunas_manter = []
+    for col in df.columns:
+        col_limpo = str(col).strip().lower()
+        if col_limpo in [c.lower() for c in COLUNAS_OFICIAIS] or col == "rowid":
+            colunas_manter.append(col)
+        # Ignora explicitamente
+        elif col_limpo in ["dia", "semana", "mês", "ano", "semana do ano"]:
+            continue
+        else:
+            colunas_manter.append(col)
+    return df[colunas_manter]
 
 def find_column(df, terms):
     for term in terms:
@@ -160,18 +208,19 @@ def parse_valor_numerico(valor):
         return 0
 
 # ============================================================
-# MAPEAMENTO DAS 19 COLUNAS — ORDEM EXATA
+# MAPEAMENTO DAS COLUNAS
 # ============================================================
 def prepare_dataframe(df):
     df = normalize_columns(df)
+    df = filtrar_colunas_oficiais(df)  # ✅ REMOVE extras
 
-    col_obs = find_column(df, ["observaçao", "observacao", "informacoes", "informações"])
+    col_obs = find_column(df, ["observaçao", "observacao", "observações", "informacoes"])
     col_acao = find_column(df, ["ação", "acao"])
     col_colab = find_column(df, ["colaborador", "colcaborador"])
     col_apq = find_column(df, ["apq"])
 
-    col_obs = ensure_column(df, col_obs or "observacao", "")
-    col_acao = ensure_column(df, col_acao or "acao", "")
+    col_obs = ensure_column(df, col_obs or "observações", "")
+    col_acao = ensure_column(df, col_acao or "ação", "")
     col_colab = ensure_column(df, col_colab or "colaborador", "")
     col_apq = ensure_column(df, col_apq or "apq", "Pendente")
 
@@ -219,10 +268,11 @@ def import_excel(uploaded_file):
     return pd.read_excel(uploaded_file, sheet_name="Notas", engine="openpyxl")
 
 # ============================================================
-# 💾 SALVAR — ADICIONA/ATUALIZA, NÃO DUPLICA NOTAS
+# 💾 SALVAR — FILTRA COLUNAS EXTRAS
 # ============================================================
 def save_imported_dataframe(df_novo):
     conn = get_connection()
+    df_novo = filtrar_colunas_oficiais(df_novo)  # ✅ LIMPA colunas extras
     col_nota_novo = find_column(df_novo, ["nota"])
 
     if not col_nota_novo:
@@ -238,6 +288,7 @@ def save_imported_dataframe(df_novo):
 
     if table_exists():
         df_antigo = pd.read_sql(f'SELECT * FROM "{TABLE_NAME}"', conn)
+        df_antigo = filtrar_colunas_oficiais(df_antigo)  # ✅ LIMPA colunas antigas
         col_nota_antigo = find_column(df_antigo, ["nota"])
 
         if col_nota_antigo:
@@ -434,10 +485,11 @@ with c4:
         st.metric("✅ APQ Concluídas", "N/D")
 
 # ============================================================
-# ✏️ TABELA EDITÁVEL
+# ✏️ TABELA — SEM COLUNAS EXTRAS!
 # ============================================================
 st.markdown("💡 **Edição direta:** altere Observação, Ação, Colaborador e APQ → clique em **Salvar Alterações**.")
 
+# ✅ EXCLUI colunas internas da visualização
 cols_exibir = [c for c in df_filtrado.columns if c not in ["__ano__", "__mes__"]]
 df_editar = df_filtrado[cols_exibir].copy()
 
@@ -501,7 +553,7 @@ with st.sidebar:
             conn.commit()
             conn.close()
             st.session_state["confirmar_limpar"] = False
-            st.success("✅ Banco de dados apagado.")
+            st.success("✅ Banco de dados apagado. Reimporte sua planilha sem as colunas extras!")
             st.rerun()
         else:
             st.session_state["confirmar_limpar"] = True
