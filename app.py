@@ -54,6 +54,30 @@ st.markdown("""
     [data-testid="collapsedControl"] svg {
         fill: white !important;
     }
+    
+    /* Estilos customizados para a interatividade da célula APQ */
+    .apq-pendente {
+        color: #ff4b4b;
+        font-weight: bold;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background 0.2s;
+    }
+    .apq-pendente:hover {
+        background-color: rgba(255, 75, 75, 0.1);
+    }
+    .apq-concluida {
+        color: #28a745;
+        font-weight: bold;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background 0.2s;
+    }
+    .apq-concluida:hover {
+        background-color: rgba(40, 167, 69, 0.1);
+    }
     </style>
     
     <div class="header-container">
@@ -150,11 +174,11 @@ if not df.empty:
         df['preparador'] = ""
         col_prep = 'preparador'
     if not col_apq and 'apq' not in df.columns:
-        df['apq'] = "🔴 Pendente"
+        df['apq'] = "Pendente"
         col_apq = 'apq'
     else:
-        df[col_apq] = df[col_apq].fillna("🔴 Pendente").apply(
-            lambda x: "🟢 Concluída" if str(x).strip().lower() in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true', '🟢 concluída'] else "🔴 Pendente"
+        df[col_apq] = df[col_apq].fillna("Pendente").apply(
+            lambda x: "Concluída" if str(x).strip().lower() in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true'] else "Pendente"
         )
 
     def limpa_inteiro(val):
@@ -185,6 +209,27 @@ if not df.empty:
         if s in ['', 'none', 'nan', 'undefined', 'null']:
             return True
         return False
+
+    # Tratamento de callback via query params para clique interativo direto na tabela HTML/JS
+    params_url = st.query_params
+    if "toggle_apq_rowid" in params_url:
+        try:
+            r_id = int(params_url["toggle_apq_rowid"])
+            conn = sqlite3.connect('refugos_weg.db', timeout=10)
+            cursor = conn.cursor()
+            # Verifica o estado atual para alternar
+            res = cursor.execute(f'SELECT "{col_apq}" FROM tabela_notas WHERE rowid = ?', (r_id,)).fetchone()
+            if res:
+                atual = str(res[0]).strip().lower()
+                novo_val = "Pendente" if atual in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true'] else "Concluída"
+                cursor.execute(f'UPDATE tabela_notas SET "{col_apq}" = ? WHERE rowid = ?', (novo_val, r_id))
+                conn.commit()
+            conn.close()
+            # Limpa o parâmetro da URL para evitar loops
+            st.query_params.clear()
+            st.rerun()
+        except Exception as e:
+            pass
 
     # ==================== FILTROS NA BARRA LATERAL ====================
     with st.sidebar:
@@ -235,7 +280,6 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # Coluna auxiliar para nota com alerta visual caso observação esteja vazia
     if col_nota:
         df_filtrado['__nota_com_alerta__'] = df_filtrado.apply(
             lambda row: f"⚠️ {limpa_inteiro(row[col_nota])}" if obs_esta_vazia(row[col_obs]) else limpa_inteiro(row[col_nota]),
@@ -343,103 +387,91 @@ if not df.empty:
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
 
-    # ==================== EXIBIÇÃO DA TABELA UNIFICADA INTERATIVA ====================
+    # ==================== EXIBIÇÃO DA TABELA HTML INTERATIVA COM APQ NA ÚLTIMA COLUNA ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
-    st.markdown("💡 **Instruções:** Clique em **qualquer célula** da tabela para selecionar a linha correspondente. O ícone ⚠️ indica observação pendente.")
+    st.markdown("💡 **Instruções:** Clique na palavra **APQ** de qualquer linha para alternar instantaneamente entre **Pendente (Vermelho)** e **Concluída (Verde)**.")
 
-    # Mapeamento estrito ordenado colocando APQ e as novas colunas logo após a coluna "custo"
+    # Mapeamento estrito ordenado colocando APQ estritamente como a ÚLTIMA coluna
     mapeamento_colunas = {
-        col_secao: "seção",
-        col_defeito: "defeito",
-        col_nota: "__nota_com_alerta__",
-        col_data: "data",
-        col_turno: "turno",
-        col_material: "material",
-        col_desc_mat: "descrição do material",
-        col_ct: "ct causador",
-        col_qtd: "quantidade",
-        col_desc_feito: "descrição do defeito",
-        col_causa: "causa",
-        col_texto_causa: "texto da causa",
-        col_custo: "custo",
-        col_apq: "APQ",
+        col_secao: "Seção",
+        col_defeito: "Defeito",
+        col_nota: "Nota",
+        col_data: "Data",
+        col_turno: "Turno",
+        col_material: "Material",
+        col_desc_mat: "Descrição Material",
+        col_ct: "CT Causador",
+        col_qtd: "Quantidade",
+        col_desc_feito: "Descrição Defeito",
+        col_causa: "Causa",
+        col_texto_causa: "Texto Causa",
+        col_custo: "Custo",
         col_obs: "Observação",
         col_acao: "Ação",
         col_colab: "Colaborador",
-        col_prep: "Preparador"
+        col_prep: "Preparador",
+        col_apq: "APQ"  # Posicionada no fim do dicionário -> Última coluna
     }
 
-    colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None and k != col_nota]
-    if col_nota:
-        colunas_presentes.insert(colunas_presentes.index(col_custo) if col_custo in colunas_presentes else 1, col_nota)
-
-    df_exibicao = df_filtrado[['rowid'] + [c for c in mapeamento_colunas.keys() if c is not None]].copy()
+    # Montagem de uma tabela HTML personalizada para garantir o clique direto interativo sem botões
+    html_tabela = """
+    <div style="overflow-x: auto; max-height: 450px; border: 1px solid #334155; border-radius: 8px;">
+    <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #f8fafc; background-color: #0f172a;">
+      <thead>
+        <tr style="background-color: #1e293b; border-bottom: 2px solid #334155; position: sticky; top: 0; z-index: 1;">
+    """
     
-    # Renomeia as colunas de acordo com o dicionário, tratando a coluna de nota com alerta
-    renomeador = {k: v for k, v in mapeamento_colunas.items() if k is not None}
-    if col_nota in renomeador:
-        renomeador[col_nota] = "nota"
-    df_exibicao = df_exibicao.rename(columns=renomeador)
+    colunas_validas = [k for k in mapeamento_colunas.keys() if k is not None]
     
-    if col_nota and '__nota_com_alerta__' in df_filtrado.columns:
-        df_exibicao["nota"] = df_filtrado['__nota_com_alerta__']
+    for k in colunas_validas:
+        nome_cab = mapeamento_colunas[k]
+        html_tabela += f'<th style="padding: 12px 10px; text-align: left; font-weight: 600;">{nome_cab}</th>'
+    html_tabela += "</tr></thead><tbody>"
 
-    # Limpeza de valores nulos nas colunas textuais
-    for col_nome in ["Observação", "Ação", "Colaborador", "Preparador"]:
-        if col_nome in df_exibicao.columns:
-            df_exibicao[col_nome] = df_exibicao[col_nome].apply(trata_nulos)
-
-    evento_tabela = st.dataframe(
-        df_exibicao.drop(columns=['rowid']),
-        use_container_width=True,
-        hide_index=True,
-        height=420,
-        selection_mode="single-row",
-        on_select="rerun"
-    )
-
-    rowid_selecionado = None
-    if evento_tabela and evento_tabela.selection.rows:
-        linha_selecionada_idx = evento_tabela.selection.rows[0]
-        rowid_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
-        st.session_state['rowid_selecionado'] = rowid_selecionado
-    elif 'rowid_selecionado' in st.session_state:
-        rowid_selecionado = st.session_state['rowid_selecionado']
-
-    if rowid_selecionado:
-        st.divider()
-        col_info_sel, col_btn_apq, col_btn_edit = st.columns([2, 1, 1])
+    for idx, row in df_filtrado.iterrows():
+        r_id = row['rowid']
+        html_tabela += f'<tr style="border-bottom: 1px solid #1e293b;" onclick="selecionarLinha(this)">'
         
-        nota_sel_obj = df[df['rowid'] == rowid_selecionado]
-        
-        with col_info_sel:
-            if not nota_sel_obj.empty and col_nota:
-                val_n = limpa_inteiro(nota_sel_obj.iloc[0][col_nota])
-                st.markdown(f"✅ **Linha selecionada:** Nota `#{val_n}` ativa.")
+        for k in colunas_validas:
+            if k == col_nota:
+                val = str(row['__nota_com_alerta__']) if '__nota_com_alerta__' in row else str(row[k])
+            elif k == col_apq:
+                raw_apq = str(row[k]).strip().lower()
+                is_concluida = raw_apq in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true']
+                classe_css = "apq-concluida" if is_concluida else "apq-pendente"
+                titulo_hover = "APQ Concluída (Clique para alternar)" if is_concluida else "APQ Pendente (Clique para concluir)"
+                # Link direto via query params para interatividade com um único clique
+                val = f'<span class="{classe_css}" title="{titulo_hover}" onclick="window.location.href=\'?toggle_apq_rowid={r_id}\'">APQ</span>'
             else:
-                st.markdown("✅ **Linha selecionada:** Registro ativo.")
-                
-        with col_btn_apq:
-            if not nota_sel_obj.empty and col_apq:
-                status_atual_apq = str(nota_sel_obj.iloc[0][col_apq])
-                if "Pendente" in status_atual_apq:
-                    if st.button("🟢 Concluir APQ", use_container_width=True):
-                        try:
-                            conn = sqlite3.connect('refugos_weg.db', timeout=10)
-                            cursor = conn.cursor()
-                            cursor.execute(f'UPDATE tabela_notas SET "{col_apq}" = ? WHERE rowid = ?', ("🟢 Concluída", rowid_selecionado))
-                            conn.commit()
-                            conn.close()
-                            st.success("APQ concluída com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao atualizar APQ: {e}")
-                else:
-                    st.markdown("🟢 **APQ Concluída**")
+                val = trata_nulos(row[k])
+                if k == col_custo and pd.notna(row[k]):
+                    val = formata_custo(row[k])
+            
+            html_tabela += f'<td style="padding: 10px 10px; white-space: nowrap;">{val}</td>'
+        html_tabela += "</tr>"
 
-        with col_btn_edit:
-            if st.button("✏️ Abrir Painel de Edição", type="primary", use_container_width=True):
-                modal_edicao(rowid_selecionado)
+    html_tabela += """
+      </tbody>
+    </table>
+    </div>
+    <script>
+    function selecionarLinha(tr) {
+        // Remove seleção anterior
+        var rows = tr.parentElement.getElementsByTagName('tr');
+        for (var i = 0; i < rows.length; i++) {
+            rows[i].style.backgroundColor = '';
+        }
+        tr.style.backgroundColor = '#1e293b';
+    }
+    </script>
+    """
+
+    st.markdown(html_tabela, unsafe_allow_html=True)
+
+    st.divider()
+    col_info_sel, col_btn_edit = st.columns([3, 1])
+    with col_info_sel:
+        st.markdown("ℹ️ **Dica:** Clique na palavra **APQ** na tabela para alterar seu estado instantaneamente entre vermelho (pendente) e verde (concluído).")
 
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
         conn = sqlite3.connect('refugos_weg.db', timeout=10)
