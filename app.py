@@ -40,6 +40,7 @@ st.set_page_config(
 DB_PATH = Path("refugos_weg.db")
 TABLE_NAME = "tabela_notas"
 
+# ✅ MANTENDO APENAS AS COLUNAS ORIGINAIS — SEM AS COLUNAS EXTRAS
 COLUNAS_IMPORTAR = {
     "SEÇÃO": 2, "DEFEITO": 3, "NOTA": 4, "DATA": 5, "TURNO": 6,
     "MATERIAL": 9, "DESCRIÇÃO DO MATERIAL": 10, "CT CAUSADOR": 11,
@@ -207,6 +208,7 @@ def ler_arquivo_otimizado(arquivo_carregado):
     df = pd.DataFrame(dados, columns=nomes)
     df = df.drop_duplicates(subset=["NOTA"], keep="first")
     
+    # ✅ Mantém apenas as colunas de controle que você realmente usa
     for col in ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP"]:
         df[col] = ""
     df["APQ"] = "Pendente"
@@ -308,7 +310,6 @@ with st.sidebar:
     
     colunas_existentes = [c for c in df_temp.columns if not c.startswith("__")] if not df_temp.empty else []
     colunas_salvas = prefs.get("colunas_visiveis", colunas_existentes)
-    # ✅ FILTRA APENAS COLUNAS QUE EXISTEM DE VERDADE
     colunas_salvas = [c for c in colunas_salvas if c in colunas_existentes]
     
     escolha_colunas = st.multiselect(
@@ -392,9 +393,8 @@ with c2:
 st.divider()
 
 # ============================================================
-# 📋 TABELA — CORRIGIDO COM PROTEÇÃO CONTRA KEYERROR
+# 📋 TABELA — SEM COLUNAS EXTRAS
 # ============================================================
-# ✅ USA APENAS COLUNAS QUE EXISTEM NO DATAFRAME
 colunas_validas = [c for c in escolha_colunas if c in df_f.columns]
 if not colunas_validas:
     colunas_validas = [c for c in df_f.columns if not c.startswith("__")]
