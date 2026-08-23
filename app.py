@@ -129,10 +129,26 @@ if not df.empty:
     col_causa = encontra_coluna(['causa'])
     col_texto_causa = encontra_coluna(['texto da causa'])
     col_custo = encontra_coluna(['custo'])
+    
+    # Identificação das novas colunas nos dados (com suporte a criação automática caso não existam)
     col_obs = encontra_coluna(['observaçao', 'observacao', 'informacoes', 'informações'])
     col_acao = encontra_coluna(['ação', 'acao'])
     col_colab = encontra_coluna(['colaborador', 'colcaborador'])
     col_prep = encontra_coluna(['preparador'])
+
+    # Garante a existência física das colunas no DataFrame para evitar erros de referência
+    if not col_obs and 'observacao' not in df.columns:
+        df['observacao'] = ""
+        col_obs = 'observacao'
+    if not col_acao and 'acao' not in df.columns:
+        df['acao'] = ""
+        col_acao = 'acao'
+    if not col_colab and 'colaborador' not in df.columns:
+        df['colaborador'] = ""
+        col_colab = 'colaborador'
+    if not col_prep and 'preparador' not in df.columns:
+        df['preparador'] = ""
+        col_prep = 'preparador'
 
     # Função auxiliar para formatar valores inteiros limpos (sem .0)
     def limpa_inteiro(val):
@@ -151,6 +167,12 @@ if not df.empty:
             except:
                 return str(val)
         return ""
+
+    # Função auxiliar para tratar valores de texto nulos/vazios na exibição da tabela
+    def trata_nulos(val):
+        if pd.isna(val) or val is None or str(val).strip().lower() in ['none', 'nan', 'undefined', 'null']:
+            return ""
+        return str(val)
 
     # ==================== FILTROS NA BARRA LATERAL ====================
     with st.sidebar:
@@ -239,20 +261,24 @@ if not df.empty:
                 val_causa = str(linha_atual[col_causa]) if col_causa and pd.notna(linha_atual[col_causa]) else ""
                 nova_causa = st.text_input("Causa", value=val_causa)
 
+            # Seção dedicada para edição das novas colunas solicitadas
+            st.markdown("---")
+            st.markdown("##### 📝 Detalhes e Responsáveis")
+            
             col_a, col_b = st.columns(2)
             with col_a:
                 val_colab = str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else ""
-                novo_colab = st.text_input("Colaborador responsável:", value=val_colab)
+                novo_colab = st.text_input("Colaborador", value=val_colab)
             
             with col_b:
                 val_prep = str(linha_atual[col_prep]) if col_prep and pd.notna(linha_atual[col_prep]) else ""
-                novo_prep = st.text_input("Preparador responsável:", value=val_prep)
+                novo_prep = st.text_input("Preparador", value=val_prep)
 
             val_acao = str(linha_atual[col_acao]) if col_acao and pd.notna(linha_atual[col_acao]) else ""
-            nova_acao = st.text_input("Ação corretiva/operacional:", value=val_acao)
+            nova_acao = st.text_input("Ação", value=val_acao)
 
             val_obs = str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else ""
-            novo_obs = st.text_area("Informações (Observação):", value=val_obs, height=80)
+            novo_obs = st.text_area("Observação", value=val_obs, height=85)
 
             st.write("")
             col_btn_salvar, col_btn_cancelar = st.columns(2)
@@ -282,6 +308,8 @@ if not df.empty:
                     if col_qtd: updates.append(f'"{col_qtd}" = ?'); params.append(nova_qtd)
                     if col_custo: updates.append(f'"{col_custo}" = ?'); params.append(custo_tratado)
                     if col_causa: updates.append(f'"{col_causa}" = ?'); params.append(nova_causa)
+                    
+                    # Atualização dos campos novos no banco
                     if col_obs: updates.append(f'"{col_obs}" = ?'); params.append(novo_obs)
                     if col_acao: updates.append(f'"{col_acao}" = ?'); params.append(nova_acao)
                     if col_colab: updates.append(f'"{col_colab}" = ?'); params.append(novo_colab)
@@ -303,6 +331,7 @@ if not df.empty:
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
     st.markdown("💡 **Instruções:** Clique em **qualquer célula** da tabela para selecionar a linha correspondente.")
 
+    # Mapeamento estrito ordenado colocando as 4 novas colunas logo após a coluna "custo"
     mapeamento_colunas = {
         col_secao: "seção",
         col_defeito: "defeito",
@@ -317,16 +346,22 @@ if not df.empty:
         col_causa: "causa",
         col_texto_causa: "texto da causa",
         col_custo: "custo",
-        col_obs: "informações",
-        col_acao: "ação",
-        col_colab: "colaborador",
-        col_prep: "preparador"
+        # As quatro novas colunas exatamente na ordem solicitada logo após "custo"
+        col_obs: "Observação",
+        col_acao: "Ação",
+        col_colab: "Colaborador",
+        col_prep: "Preparador"
     }
 
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
-    # Tabela unificada interativa padrão
+    # Aplicação de limpeza nos valores das novas colunas para garantir células vazias sem "undefined"/"null"
+    for col_nome in ["Observação", "Ação", "Colaborador", "Preparador"]:
+        if col_nome in df_exibicao.columns:
+            df_exibicao[col_nome] = df_exibicao[col_nome].apply(trata_nulos)
+
+    # Tabela unificada interativa padrão com suporte a scroll horizontal automático nativo
     evento_tabela = st.dataframe(
         df_exibicao.drop(columns=['rowid']),
         use_container_width=True,
