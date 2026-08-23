@@ -259,7 +259,7 @@ def salvar_dados(df_novo):
     return len(df_novo), novas
 
 # ============================================================
-# 📂 BARRA LATERAL — SIMPLIFICADA
+# 📂 BARRA LATERAL — TODOS OS FILTROS E BOTÃO RESTAURADOS
 # ============================================================
 with st.sidebar:
     st.header("📂 Importar Dados")
@@ -279,11 +279,32 @@ with st.sidebar:
             st.error(f"❌ {str(e)}")
 
     st.divider()
-    st.header("👁️ Colunas Visíveis")
+    st.header("🔍 Filtros")
+    
+    pesq = st.text_input("Pesquisar Nota", placeholder="Digite o número...")
     
     df_temp = load_data()
-    selecionadas = []
+    col_data = find_column(df_temp, ["data"])
+    tem_data = col_data and not df_temp.empty
     
+    f_ano = f_mes = "Todos"
+    if tem_data:
+        df_temp["__dt__"] = pd.to_datetime(df_temp[col_data], format="%d/%m/%Y", errors="coerce")
+        f_ano = st.selectbox("📅 Ano", ["Todos"] + sorted([str(int(x)) for x in df_temp["__dt__"].dt.year.dropna().unique()]))
+        f_mes = st.selectbox("📅 Mês", ["Todos"] + sorted([str(int(x)) for x in df_temp["__dt__"].dt.month.dropna().unique()]))
+    
+    col_secao = find_column(df_temp, ["seção"])
+    secoes = ["Todas"] + sorted(df_temp[col_secao].dropna().astype(str).str.strip().unique().tolist()) if col_secao else ["Todas"]
+    f_sec = st.selectbox("🏭 Seção", secoes)
+    
+    col_turno = find_column(df_temp, ["turno"])
+    turnos = ["Todos"] + sorted(df_temp[col_turno].dropna().astype(str).str.strip().unique().tolist()) if col_turno else ["Todos"]
+    f_turno = st.selectbox("⏰ Turno", turnos)
+
+    st.divider()
+    st.header("👁️ Colunas Visíveis")
+    
+    selecionadas = []
     if not df_temp.empty:
         todas_colunas = [c for c in df_temp.columns if not c.startswith("__")]
         colunas_visiveis_salvas = prefs.get("colunas_visiveis", todas_colunas)
@@ -300,3 +321,146 @@ with st.sidebar:
             prefs["colunas_visiveis"] = selecionadas
             salvar_preferencias(prefs)
             st.toast("✅ Preferência salva!")
+
+    st.divider()
+    st.header("⚠️ Administração")
+    if st.button("🗑️ Limpar Banco", type="secondary"):
+        if DB_PATH.exists():
+            DB_PATH.unlink()
+            PREFS_FILE.unlink(missing_ok=True)
+            st.success("✅ Banco apagado! Reimporte o arquivo.")
+            st.rerun()
+
+# ============================================================
+# CARREGAR DADOS
+# ============================================================
+df = load_data()
+if df.empty:
+    st.info("👋 Bem-vindo! Importe sua planilha pela barra lateral para começar.")
+    st.stop()
+
+col_nota = find_column(df, ["nota"])
+col_data = find_column(df, ["data"])
+col_secao = find_column(df, ["seção", "secao"])
+col_turno = find_column(df, ["turno"])
+col_qtd = find_column(df, ["quantidade"])
+col_custo = find_column(df, ["custo"])
+col_apq = find_column(df, ["apq"])
+col_obs = find_column(df, ["observação", "observacao", "observações"])
+col_acao = find_column(df, ["ação", "acao"])
+col_colab = find_column(df, ["colaborador"])
+
+df["__dt__"] = pd.to_datetime(df[col_data], format="%d/%m/%Y", errors="coerce") if col_data else pd.NaT
+df["__ano__"] = df["__dt__"].dt.year.astype("Int64")
+df["__mes__"] = df["__dt__"].dt.month.astype("Int64")
+
+# ============================================================
+# APLICAR FILTROS
+# ============================================================
+df_f = df.copy()
+if pesq and col_nota:
+    df_f = df_f[df_f[col_nota].astype(str).str.contains(pesq, case=False, na=False)]
+if f_sec != "Todas" and col_secao:
+    df_f = df_f[df_f[col_secao].astype(str).str.strip() == f_sec]
+if f_turno != "Todos" and col_turno:
+    df_f = df_f[df_f[col_turno].astype(str).str.strip() == f_turno]
+if f_ano != "Todos":
+    df_f = df_f[df_f["__ano__"].astype(str) == f_ano]
+if f_mes != "Todos":
+    df_f = df_f[df_f["__mes__"].astype(str) == f_mes]
+
+# ============================================================
+# 📊 INDICADORES
+# ============================================================
+st.markdown(f"### 📊 Visão Geral · {len(df_f)} registros")
+
+total_notas = df_f[col_nota].nunique() if col_nota else 0
+qtd_total = df_f[col_qtd].apply(converter_quantidade_inteira).sum() if col_qtd else 0
+custo_total = df_f[col_custo].apply(converter_custo).sum() if col_custo else 0
+total_registros = len(df_f)
+concluidas = df_f[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum() if col_apq else 0
+perc_apq = (concluidas / total_registros * 100) if total_registros > 0 else 0
+
+c1, c2, c3, c4 = st.columns(4)
+
+with c1:
+    st.markdown(f"""
+    <div class="metric-card notas">
+        <div class="metric-label">📋 Notas Únicas</div>
+        <div class="metric-value">{total_notas:,}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c2:
+    st.markdown(f"""
+    <div class="metric-card qtd">
+        <div class="metric-label">📦 Quantidade Total</div>
+        <div class="metric-value">{int(qtd_total):,}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c3:
+    st.markdown(f"""
+    <div class="metric-card custo">
+        <div class="metric-label">💰 Custo Total</div>
+        <div class="metric-value">R$ {custo_total:,.2f}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c4:
+    st.markdown(f"""
+    <div class="metric-card apq">
+        <div class="metric-label">✅ APQ Concluídas</div>
+        <div class="metric-value">{concluidas} / {total_registros}</div>
+        <div style="font-size:0.85rem; color:#6b7280;">{perc_apq:.1f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.divider()
+
+# ============================================================
+# 📋 TABELA
+# ============================================================
+if selecionadas:
+    colunas_exibir = selecionadas
+else:
+    colunas_exibir = [c for c in df_f.columns if not c.startswith("__")]
+
+if "rowid" in df_f.columns and "rowid" not in colunas_exibir:
+    colunas_exibir = ["rowid"] + colunas_exibir
+
+df_edit = df_f[colunas_exibir].copy()
+
+cfg = {}
+if col_apq and col_apq in colunas_exibir:
+    cfg[col_apq] = st.column_config.SelectboxColumn("APQ", options=["Pendente", "Concluída"], required=True)
+if col_qtd and col_qtd in colunas_exibir:
+    cfg[col_qtd] = st.column_config.NumberColumn("QUANTIDADE", format="%d", min_value=0)
+if col_custo and col_custo in colunas_exibir:
+    cfg[col_custo] = st.column_config.NumberColumn("CUSTO REFUGO", format="R$ %.2f")
+
+if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
+    try:
+        if "rowid" not in df_edit.columns:
+            st.warning("⚠️ Reimporte os dados para poder salvar alterações.")
+        else:
+            conn = get_connection()
+            for _, linha in df_edit.iterrows():
+                rid = int(linha["rowid"])
+                obs = str(linha.get(col_obs, "")).strip() if col_obs else ""
+                acao = str(linha.get(col_acao, "")).strip() if col_acao else ""
+                colab = str(linha.get(col_colab, "")).strip() if col_colab else ""
+                apq = str(linha.get(col_apq, "Pendente")).strip() if col_apq else "Pendente"
+                conn.execute(f'UPDATE "{TABLE_NAME}" SET "Observações"=?, "Ação"=?, "Colaborador"=?, "APQ"=? WHERE rowid=?',
+                    (obs, acao, colab, apq, rid))
+            conn.commit()
+            conn.close()
+            st.success("✅ Alterações salvas com sucesso!")
+            st.rerun()
+    except Exception as e:
+        st.error(f"❌ Erro ao salvar: {e}")
+
+st.data_editor(
+    df_edit, use_container_width=True, hide_index=True, num_rows="fixed",
+    column_config=cfg, key="tabela", height=500
+)
