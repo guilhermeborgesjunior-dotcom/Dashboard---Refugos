@@ -7,7 +7,7 @@ st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
 # Função para conectar e criar o banco de dados local
 def init_db():
-    conn = sqlite3.connect('refugos_weg.db')
+    conn = sqlite3.connect('refugos_weg.db', timeout=10)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS refugos (
@@ -34,31 +34,32 @@ uploaded_file = st.sidebar.file_uploader("Importar planilha de dados", type=["xl
 
 if uploaded_file is not None:
     try:
-        # Lê o arquivo
+        # Lê o arquivo dependendo da extensão
         if uploaded_file.name.endswith('.csv'):
             df_novo = pd.read_csv(uploaded_file)
         else:
-            df_novo = pd.read_excel(uploaded_file)
+            # engine='openpyxl' garante leitura correta de arquivos .xlsx e .xlsm
+            df_novo = pd.read_excel(uploaded_file, engine='openpyxl')
 
         # Padroniza os nomes das colunas para minúsculo
         df_novo.columns = [str(c).strip().lower() for c in df_novo.columns]
 
-        # Mapeia colunas comuns para o banco de dados (ajuste se necessário)
-        # Espera-se colunas parecidas com: data, turno, maquina, qtdproduzida, qtdrefugada, motivo, custounitario
-        conn = sqlite3.connect('refugos_weg.db')
-        
-        # Salva os dados novos na tabela do banco
+        # Conecta ao banco de dados e salva os dados novos
+        conn = sqlite3.connect('refugos_weg.db', timeout=10)
         df_novo.to_sql('refugos', conn, if_exists='append', index=False)
         conn.close()
         
-        st.sidebar.success("Arquivo importado e salvo no banco de dados com sucesso!")
+        st.sidebar.success("Planilha importada e salva no banco de dados com sucesso!")
     except Exception as e:
-        st.sidebar.error(f"Erro ao processar o arquivo: {e}")
+        st.sidebar.error(f"Erro detalhado ao processar o arquivo: {e}")
 
-# Carrega sempre os dados do banco de dados (isso garante que não some ao atualizar)
-conn = sqlite3.connect('refugos_weg.db')
-df = pd.read_sql('SELECT * FROM refugos', conn)
-conn.close()
+# Carrega os dados usando uma query SQL segura
+try:
+    conn = sqlite3.connect('refugos_weg.db', timeout=10)
+    df = pd.read_sql('SELECT * FROM refugos', conn)
+    conn.close()
+except:
+    df = pd.DataFrame()
 
 if not df.empty:
     # Remove a coluna ID gerada pelo banco para exibição limpa
@@ -119,7 +120,7 @@ if not df.empty:
 
     # Botão para limpar o banco de dados caso precise reiniciar os testes
     if st.button("Limpar Banco de Dados"):
-        conn = sqlite3.connect('refugos_weg.db')
+        conn = sqlite3.connect('refugos_weg.db', timeout=10)
         conn.execute('DELETE FROM refugos')
         conn.commit()
         conn.close()
