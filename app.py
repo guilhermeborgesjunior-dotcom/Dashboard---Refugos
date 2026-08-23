@@ -18,21 +18,11 @@ st.set_page_config(
 DB_PATH = Path("refugos_weg.db")
 TABLE_NAME = "tabela_notas"
 
-# ✅ COLUNAS DA ABA "NOTAS" (índice 0-based)
 COLUNAS_IMPORTAR = {
-    "SEÇÃO": 2,
-    "DEFEITO": 3,
-    "NOTA": 4,
-    "DATA": 5,
-    "TURNO": 6,
-    "MATERIAL": 9,
-    "DESCRIÇÃO DO MATERIAL": 10,
-    "CT CAUSADOR": 11,
-    "QUANTIDADE": 12,
-    "DESCRIÇÃO DO DEFEITO": 15,
-    "CAUSA": 17,
-    "TEXTO DA CAUSA": 18,
-    "CUSTO REFUGO": 20,
+    "SEÇÃO": 2, "DEFEITO": 3, "NOTA": 4, "DATA": 5, "TURNO": 6,
+    "MATERIAL": 9, "DESCRIÇÃO DO MATERIAL": 10, "CT CAUSADOR": 11,
+    "QUANTIDADE": 12, "DESCRIÇÃO DO DEFEITO": 15, "CAUSA": 17,
+    "TEXTO DA CAUSA": 18, "CUSTO REFUGO": 20,
 }
 
 # ============================================================
@@ -58,6 +48,39 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
+# 🔧 FUNÇÕES DE LIMPEZA
+# ============================================================
+def limpar_nota(valor):
+    """✅ Remove .0, pontos de milhar e tudo que não for número"""
+    if pd.isna(valor): return ""
+    s = str(valor).strip()
+    s = re.sub(r'\.0+$', '', s)    # Remove .0 no final
+    s = re.sub(r'\.\d+$', '', s)    # Remove qualquer decimal
+    s = s.replace('.', '').replace(',', '')  # Remove pontos/vírgulas
+    s = re.sub(r'[^0-9]', '', s)    # Mantém só números
+    return s
+
+def limpar_coluna_nota(df, col_nota):
+    """✅ Aplica limpeza em toda a coluna NOTA de um DataFrame"""
+    if col_nota and col_nota in df.columns:
+        df[col_nota] = df[col_nota].apply(limpar_nota)
+    return df
+
+def formatar_data_br(valor):
+    if pd.isna(valor) or str(valor).strip() == "": return ""
+    if isinstance(valor, (datetime, date)):
+        return valor.strftime("%d/%m/%Y")
+    s = str(valor).strip()
+    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y", "%d-%m-%Y"]:
+        try: return datetime.strptime(s, fmt).strftime("%d/%m/%Y")
+        except: continue
+    try:
+        dt = pd.to_datetime(s, dayfirst=True, errors="coerce")
+        if pd.notna(dt): return dt.strftime("%d/%m/%Y")
+    except: pass
+    return s
+
+# ============================================================
 # BANCO DE DADOS
 # ============================================================
 def get_connection():
@@ -73,19 +96,6 @@ def table_exists():
         return cur.fetchone() is not None
     finally: conn.close()
 
-def load_data():
-    if not table_exists(): return pd.DataFrame()
-    conn = get_connection()
-    try:
-        return pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
-    except Exception as e:
-        st.error(f"Erro ao carregar: {e}")
-        return pd.DataFrame()
-    finally: conn.close()
-
-# ============================================================
-# UTILITÁRIOS
-# ============================================================
 def find_column(df, terms):
     for t in terms:
         t = t.lower().strip()
@@ -93,57 +103,19 @@ def find_column(df, terms):
             if t in str(c).lower().strip(): return c
     return None
 
-def limpar_nota(valor):
-    """✅ Converte nota para número inteiro, remove .0 e pontos de milhar"""
-    if pd.isna(valor): return ""
-    s = str(valor).strip()
-    # Remove .0 no final
-    s = re.sub(r'\.0+$', '', s)
-    # Remove pontos de milhar
-    s = s.replace('.', '').replace(',', '')
-    # Remove caracteres não numéricos
-    s = re.sub(r'[^0-9]', '', s)
-    return s if s else ""
-
-def formatar_data_br(valor):
-    """✅ Converte data para formato dd/mm/aaaa"""
-    if pd.isna(valor) or str(valor).strip() == "":
-        return ""
-    
-    if isinstance(valor, datetime):
-        return valor.strftime("%d/%m/%Y")
-    
-    if isinstance(valor, date):
-        return valor.strftime("%d/%m/%Y")
-    
-    s = str(valor).strip()
-    
-    # Tenta vários formatos
-    formatos = [
-        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
-        "%d/%m/%Y %H:%M:%S", "%d/%m/%Y",
-        "%d-%m-%Y", "%d.%m.%Y",
-    ]
-    
-    for fmt in formatos:
-        try:
-            return datetime.strptime(s, fmt).strftime("%d/%m/%Y")
-        except:
-            continue
-    
-    # Tenta com pandas
+def load_data():
+    if not table_exists(): return pd.DataFrame()
+    conn = get_connection()
     try:
-        dt = pd.to_datetime(s, dayfirst=True, errors="coerce")
-        if pd.notna(dt):
-            return dt.strftime("%d/%m/%Y")
-    except:
-        pass
-    
-    return s
-
-def parse_data_para_filtro(series):
-    """Converte string dd/mm/aaaa para datetime (para filtros)"""
-    return pd.to_datetime(series, format="%d/%m/%Y", errors="coerce", dayfirst=True)
+        df = pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
+        # ✅ LIMPA NOTAS ao carregar do banco
+        col_nota = find_column(df, ["nota"])
+        df = limpar_coluna_nota(df, col_nota)
+        return df
+    except Exception as e:
+        st.error(f"Erro: {e}")
+        return pd.DataFrame()
+    finally: conn.close()
 
 def parse_valor_numerico(valor):
     if pd.isna(valor) or str(valor).strip() == "": return 0
@@ -156,7 +128,6 @@ def parse_valor_numerico(valor):
 # ============================================================
 def ler_arquivo_otimizado(arquivo_carregado):
     import openpyxl
-    
     dados_bytes = BytesIO(arquivo_carregado.getvalue())
     wb = openpyxl.load_workbook(dados_bytes, read_only=True, data_only=True)
     
@@ -164,47 +135,39 @@ def ler_arquivo_otimizado(arquivo_carregado):
         raise ValueError(f"Aba 'Notas' não encontrada! Abas: {', '.join(wb.sheetnames)}")
     
     ws = wb["Notas"]
-    indices_colunas = list(COLUNAS_IMPORTAR.values())
-    nomes_colunas = list(COLUNAS_IMPORTAR.keys())
+    indices = list(COLUNAS_IMPORTAR.values())
+    nomes = list(COLUNAS_IMPORTAR.keys())
+    idx_nota = nomes.index("NOTA")
+    idx_data = nomes.index("DATA")
     
     dados = []
     for i, linha in enumerate(ws.iter_rows(min_row=2, values_only=True)):
         if i >= 15000: break
-        
-        # Verifica se NOTA existe
         if len(linha) <= 4 or linha[4] is None or str(linha[4]).strip() == "":
             continue
         
         registro = []
-        for idx in indices_colunas:
+        for j, idx in enumerate(indices):
             if idx < len(linha):
                 valor = linha[idx]
-                
-                # ✅ NOTA: limpar e converter para inteiro
-                if idx == 4:  # coluna NOTA
-                    valor = limpar_nota(valor)
-                
-                # ✅ DATA: converter para dd/mm/aaaa
-                elif idx == 5:  # coluna DATA
-                    valor = formatar_data_br(valor)
-                
-                # Outras datas
+                if j == idx_nota:
+                    valor = limpar_nota(valor)  # ✅ NOTA LIMPA
+                elif j == idx_data:
+                    valor = formatar_data_br(valor)  # ✅ DATA BR
                 elif isinstance(valor, datetime):
                     valor = valor.strftime("%d/%m/%Y")
-                
                 registro.append(valor)
             else:
                 registro.append(None)
         dados.append(registro)
     
     wb.close()
+    df = pd.DataFrame(dados, columns=nomes)
     
-    df = pd.DataFrame(dados, columns=nomes_colunas)
-    
-    # ✅ REMOVER DUPLICATAS pela coluna NOTA
+    # ✅ Remove duplicatas
     df = df.drop_duplicates(subset=["NOTA"], keep="first")
     
-    # Adiciona colunas extras
+    # Colunas extras
     for col in ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP"]:
         df[col] = ""
     df["APQ"] = "Pendente"
@@ -216,36 +179,36 @@ def ler_arquivo_otimizado(arquivo_carregado):
 # ============================================================
 def salvar_dados(df_novo):
     col_nota = find_column(df_novo, ["nota"])
-    if not col_nota:
-        raise ValueError("Coluna 'Nota' não encontrada!")
-
-    df_novo[col_nota] = df_novo[col_nota].astype(str).str.strip()
+    if not col_nota: raise ValueError("Coluna 'Nota' não encontrada!")
     
-    # ✅ Remove duplicatas do novo arquivo
+    # ✅ LIMPA notas do arquivo novo
+    df_novo = limpar_coluna_nota(df_novo, col_nota)
     df_novo = df_novo.drop_duplicates(subset=[col_nota], keep="first")
     
     conn = get_connection()
-
+    
     if table_exists():
         df_antigo = pd.read_sql(f'SELECT * FROM "{TABLE_NAME}"', conn)
         col_nota_ant = find_column(df_antigo, ["nota"])
         
         if col_nota_ant:
-            df_antigo[col_nota_ant] = df_antigo[col_nota_ant].astype(str).str.strip()
+            # ✅ LIMPA notas do banco antigo também
+            df_antigo = limpar_coluna_nota(df_antigo, col_nota_ant)
             
             # Preserva colunas de edição
-            colunas_preservar = [c for c in 
+            cols_pres = [c for c in 
                 ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP", col_nota_ant]
                 if c in df_antigo.columns]
             
-            if len(colunas_preservar) > 1:
-                df_preservar = df_antigo[colunas_preservar].copy()
-                colunas_remover = [c for c in colunas_preservar if c != col_nota]
-                df_novo = df_novo.drop(columns=colunas_remover, errors="ignore")
-                df_novo = df_novo.merge(df_preservar, on=col_nota, how="left")
+            if len(cols_pres) > 1:
+                df_pres = df_antigo[cols_pres].copy()
+                cols_remover = [c for c in cols_pres if c != col_nota]
+                df_novo = df_novo.drop(columns=cols_remover, errors="ignore")
+                df_novo = df_novo.merge(df_pres, on=col_nota, how="left")
             
-            # ✅ Remove duplicatas no merge final
             df_final = pd.concat([df_novo, df_antigo]).drop_duplicates(subset=col_nota, keep="first")
+            # ✅ LIMPA notas no final
+            df_final = limpar_coluna_nota(df_final, col_nota)
             novas = len(set(df_novo[col_nota].unique()) - set(df_antigo[col_nota_ant].unique()))
         else:
             df_final = df_novo
@@ -253,7 +216,7 @@ def salvar_dados(df_novo):
     else:
         df_final = df_novo
         novas = len(df_novo)
-
+    
     df_final.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
     conn.commit()
     conn.close()
@@ -263,33 +226,32 @@ def salvar_dados(df_novo):
 # 📂 MENU LATERAL
 # ============================================================
 with st.sidebar:
-    st.header("🛠️ Menu de Opções")
-    with st.expander("📂 Importar Dados", expanded=False):
-        arq = st.file_uploader(
-            "Selecione sua Planilha (.xlsx, .xlsm, .xls)",
-            type=["xlsx", "xlsm", "xls"]
-        )
-
+    st.header("🛠️ Menu")
+    with st.expander("📂 Importar", expanded=False):
+        arq = st.file_uploader("Planilha (.xlsx, .xlsm, .xls)", type=["xlsx", "xlsm", "xls"])
         if arq is not None:
             try:
-                with st.spinner(f"📖 Lendo {arq.name}..."):
+                with st.spinner(f"📖 Lendo..."):
                     df = ler_arquivo_otimizado(arq)
-                
                 if df.empty:
-                    st.warning("⚠️ Nenhum dado encontrado.")
+                    st.warning("⚠️ Sem dados.")
                 else:
                     with st.spinner("💾 Salvando..."):
                         total, novas = salvar_dados(df)
-                    
-                    st.success(f"✅ {total} registros! ({novas} novas notas)")
+                    st.success(f"✅ {total} registros! ({novas} novas)")
                     st.rerun()
-                    
             except Exception as e:
-                st.error(f"❌ Erro: {str(e)}")
-                import traceback
-                with st.expander("🔍 Detalhes"):
-                    st.code(traceback.format_exc())
-
+                st.error(f"❌ {str(e)}")
+    
+    # ✅ Botão para LIMPAR banco e reimportar
+    st.divider()
+    st.subheader("⚠️ Administração")
+    if st.button("🗑️ Limpar Banco e Reimportar"):
+        if DB_PATH.exists():
+            DB_PATH.unlink()
+            st.success("✅ Banco apagado! Importe o arquivo novamente.")
+            st.rerun()
+    
     st.divider()
     st.subheader("🔍 Filtros")
 
@@ -298,10 +260,9 @@ with st.sidebar:
 # ============================================================
 df = load_data()
 if df.empty:
-    st.warning("⚠️ Banco vazio → Selecione sua planilha no menu lateral 👆")
+    st.warning("⚠️ Banco vazio → Importe sua planilha no menu lateral 👆")
     st.stop()
 
-# Mapeia colunas
 col_nota = find_column(df, ["nota"])
 col_data = find_column(df, ["data"])
 col_secao = find_column(df, ["seção", "secao"])
@@ -313,77 +274,70 @@ col_obs = find_column(df, ["observação", "observacao", "observações"])
 col_acao = find_column(df, ["ação", "acao"])
 col_apq = find_column(df, ["apq"])
 
-# Converte data para filtro
-df["__data_dt__"] = parse_data_para_filtro(df[col_data]) if col_data else pd.NaT
-df["__ano__"] = df["__data_dt__"].dt.year.astype("Int64")
-df["__mes__"] = df["__data_dt__"].dt.month.astype("Int64")
+# Data para filtro
+df["__dt__"] = pd.to_datetime(df[col_data], format="%d/%m/%Y", errors="coerce") if col_data else pd.NaT
+df["__ano__"] = df["__dt__"].dt.year.astype("Int64")
+df["__mes__"] = df["__dt__"].dt.month.astype("Int64")
 
 # ============================================================
 # FILTROS
 # ============================================================
 with st.sidebar:
-    pesq_nota = st.text_input("Pesquisar Nota")
+    pesq = st.text_input("Pesquisar Nota")
     secoes = ["Todas"] + sorted(df[col_secao].dropna().astype(str).str.strip().unique().tolist()) if col_secao else ["Todas"]
-    f_secao = st.selectbox("Seção", secoes)
+    f_sec = st.selectbox("Seção", secoes)
     turnos = ["Todos"] + sorted(df[col_turno].dropna().astype(str).str.strip().unique().tolist()) if col_turno else ["Todos"]
     f_turno = st.selectbox("Turno", turnos)
-
     f_mes = f_ano = "Todos"
     if not df["__mes__"].dropna().empty:
         f_mes = st.selectbox("Mês", ["Todos"] + sorted([str(int(x)) for x in df["__mes__"].dropna().unique()]))
         f_ano = st.selectbox("Ano", ["Todos"] + sorted([str(int(x)) for x in df["__ano__"].dropna().unique()]))
 
 # Aplica filtros
-df_filt = df.copy()
-if pesq_nota and col_nota:
-    df_filt = df_filt[df_filt[col_nota].astype(str).str.contains(pesq_nota, case=False, na=False)]
-if f_secao != "Todas" and col_secao:
-    df_filt = df_filt[df_filt[col_secao].astype(str).str.strip() == f_secao]
+df_f = df.copy()
+if pesq and col_nota:
+    df_f = df_f[df_f[col_nota].astype(str).str.contains(pesq, case=False, na=False)]
+if f_sec != "Todas" and col_secao:
+    df_f = df_f[df_f[col_secao].astype(str).str.strip() == f_sec]
 if f_turno != "Todos" and col_turno:
-    df_filt = df_filt[df_filt[col_turno].astype(str).str.strip() == f_turno]
+    df_f = df_f[df_f[col_turno].astype(str).str.strip() == f_turno]
 if f_mes != "Todos":
-    df_filt = df_filt[df_filt["__mes__"].astype(str) == f_mes]
+    df_f = df_f[df_f["__mes__"].astype(str) == f_mes]
 if f_ano != "Todos":
-    df_filt = df_filt[df_filt["__ano__"].astype(str) == f_ano]
+    df_f = df_f[df_f["__ano__"].astype(str) == f_ano]
 
 # ============================================================
 # INDICADORES
 # ============================================================
-st.subheader(f"📊 Registros: {len(df_filt):,}")
+st.subheader(f"📊 Registros: {len(df_f):,}")
 c1, c2, c3, c4 = st.columns(4)
-with c1: st.metric("📋 Notas Únicas", f"{df_filt[col_nota].nunique():,}" if col_nota else "N/D")
-with c2: st.metric("📦 Quantidade", f"{df_filt[col_qtd].apply(parse_valor_numerico).sum():,.0f}" if col_qtd else "N/D")
-with c3: st.metric("💰 Custo Total", f"R$ {df_filt[col_custo].apply(parse_valor_numerico).sum():,.2f}" if col_custo else "N/D")
+with c1: st.metric("📋 Notas Únicas", f"{df_f[col_nota].nunique():,}" if col_nota else "N/D")
+with c2: st.metric("📦 Quantidade", f"{df_f[col_qtd].apply(parse_valor_numerico).sum():,.0f}" if col_qtd else "N/D")
+with c3: st.metric("💰 Custo Total", f"R$ {df_f[col_custo].apply(parse_valor_numerico).sum():,.2f}" if col_custo else "N/D")
 with c4:
     if col_apq:
-        conc = df_filt[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum()
-        pend = len(df_filt) - conc
-        st.metric("✅ APQ Concluídas", f"{conc} / {conc+pend}")
-    else: st.metric("✅ APQ Concluídas", "N/D")
+        c = df_f[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum()
+        st.metric("✅ APQ", f"{c} / {len(df_f)}")
+    else: st.metric("✅ APQ", "N/D")
 
 # ============================================================
 # TABELA
 # ============================================================
-cols_exibir = [c for c in df_filt.columns if c not in ["__data_dt__", "__ano__", "__mes__"]]
-df_edit = df_filt[cols_exibir].copy()
+cols_exibir = [c for c in df_f.columns if c not in ["__dt__", "__ano__", "__mes__"]]
+df_edit = df_f[cols_exibir].copy()
 
-config_colunas = {}
+cfg = {}
 if col_apq:
-    config_colunas[col_apq] = st.column_config.SelectboxColumn(
-        "APQ", options=["Pendente", "Concluída"], required=True
-    )
+    cfg[col_apq] = st.column_config.SelectboxColumn("APQ", options=["Pendente", "Concluída"], required=True)
 
 df_salvo = st.data_editor(
     df_edit, use_container_width=True, hide_index=True, num_rows="fixed",
-    column_config=config_colunas, key="tabela_editor"
+    column_config=cfg, key="tabela"
 )
 
-# Botão salvar
 if st.button("💾 Salvar Alterações", type="primary"):
     try:
-        if "rowid" not in df_salvo.columns:
-            raise ValueError("Reimporte os dados.")
-        
+        if "rowid" not in df_salvo.columns: raise ValueError("Reimporte.")
         conn = get_connection()
         for _, linha in df_salvo.iterrows():
             rid = int(linha["rowid"])
@@ -391,16 +345,9 @@ if st.button("💾 Salvar Alterações", type="primary"):
             acao = str(linha.get(col_acao, "")).strip() if col_acao else ""
             colab = str(linha.get(col_colab, "")).strip() if col_colab else ""
             apq = str(linha.get(col_apq, "Pendente")).strip() if col_apq else "Pendente"
-            
-            conn.execute(f"""
-                UPDATE "{TABLE_NAME}"
-                SET "Observações"=?, "Ação"=?, "Colaborador"=?, "APQ"=?
-                WHERE rowid=?
-            """, (obs, acao, colab, apq, rid))
-        
-        conn.commit()
-        conn.close()
-        st.success("✅ Salvo!")
-        st.rerun()
+            conn.execute(f'UPDATE "{TABLE_NAME}" SET "Observações"=?, "Ação"=?, "Colaborador"=?, "APQ"=? WHERE rowid=?',
+                (obs, acao, colab, apq, rid))
+        conn.commit(); conn.close()
+        st.success("✅ Salvo!"); st.rerun()
     except Exception as e:
-        st.error(f"❌ Erro: {e}")
+        st.error(f"❌ {e}")
