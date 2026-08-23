@@ -5,7 +5,7 @@ import sqlite3
 # Configuração da página (deve ser a primeira instrução)
 st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
-# Estilos customizados para largura total, cabeçalho, menu hamburger e remoção de espaços verticais
+# Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
 st.markdown("""
     <style>
     .block-container {
@@ -189,20 +189,26 @@ if not df.empty:
         linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
         
         st.markdown(f"### Nota: `{linha_atual[col_nota] if col_nota else 'N/A'}` | Seção: `{linha_atual[col_secao] if col_secao else 'N/A'}`")
-        st.write("Utilize os campos abaixo para atualizar as informações:")
+        st.write("Utilize as abas abaixo para editar as informações:")
 
         with st.form(f"form_modal_{rowid_alvo}"):
-            val_obs = str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else ""
-            novo_obs = st.text_area("Informações:", value=val_obs, height=100)
+            aba_info, aba_acao, aba_colab, aba_prep = st.tabs(["Informações", "Ação", "Colaborador", "Preparador"])
 
-            val_acao = str(linha_atual[col_acao]) if col_acao and pd.notna(linha_atual[col_acao]) else ""
-            nova_acao = st.text_input("Ação:", value=val_acao)
+            with aba_info:
+                val_obs = str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else ""
+                novo_obs = st.text_area("Informações (Observação):", value=val_obs, height=120)
 
-            val_colab = str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else ""
-            novo_colab = st.text_input("Colaborador:", value=val_colab)
+            with aba_acao:
+                val_acao = str(linha_atual[col_acao]) if col_acao and pd.notna(linha_atual[col_acao]) else ""
+                nova_acao = st.text_input("Ação corretiva/operacional:", value=val_acao)
 
-            val_prep = str(linha_atual[col_prep]) if col_prep and pd.notna(linha_atual[col_prep]) else ""
-            novo_prep = st.text_input("Preparador:", value=val_prep)
+            with aba_colab:
+                val_colab = str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else ""
+                novo_colab = st.text_input("Colaborador responsável:", value=val_colab)
+
+            with aba_prep:
+                val_prep = str(linha_atual[col_prep]) if col_prep and pd.notna(linha_atual[col_prep]) else ""
+                novo_prep = st.text_input("Preparador responsável:", value=val_prep)
 
             st.write("")
             salvar = st.form_submit_button("💾 Salvar Alterações", type="primary")
@@ -239,7 +245,7 @@ if not df.empty:
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
 
-    # ==================== EXIBIÇÃO DA TABELA COMPACTA COM BOTÕES DE EDIÇÃO ====================
+    # ==================== EXIBIÇÃO DA TABELA ÚNICA COM CABEÇALHO CONGELADO ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
 
     mapeamento_colunas = {
@@ -265,20 +271,29 @@ if not df.empty:
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
-    # Renderiza a tabela limpa de uma só vez (sem espaçamento vertical exagerado)
-    # Adicionamos uma coluna interativa de botões limpa utilizando st.data_editor ou listagem compacta com colunas
-    for idx, row in df_exibicao.iterrows():
-        r_id = row['rowid']
-        
-        # Cria uma linha compacta contendo os dados principais e o botão de editar bem ajustado
-        cols = st.columns([13, 1])
-        with cols[0]:
-            # Exibe os dados da linha em uma mini tabela compacta unificada de 1 linha
-            df_linha = pd.DataFrame([row.drop('rowid')])
-            st.dataframe(df_linha, use_container_width=True, hide_index=True, height=38)
-        with cols[1]:
-            if st.button("✏️", key=f"edit_{r_id}", help="Editar registro"):
-                modal_edicao(r_id)
+    # Criamos uma coluna visual extra para o botão de edição direto na tabela unificada
+    col_acoes_acoes = []
+    for r_id in df_exibicao['rowid']:
+        col_acoes_acoes.append("✏️ Editar")
+    
+    df_exibicao['Ações'] = col_acoes_acoes
+
+    # Exibe a tabela completa em um único bloco com altura fixa (ativa o sticky header nativo e rolagem interna)
+    evento_selecao = st.dataframe(
+        df_exibicao.drop(columns=['rowid']),
+        use_container_width=True,
+        hide_index=True,
+        height=450,
+        selection_mode="single-row",
+        on_select="rerun"
+    )
+
+    # Se o usuário clicar em uma linha ou quisermos dar suporte via seleção na tabela nativa:
+    # Como alternativa prática e direta para abrir o pop-up da linha selecionada:
+    if evento_selecao and evento_selecao.selection.rows:
+        linha_selecionada_idx = evento_selecao.selection.rows[0]
+        r_id_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
+        modal_edicao(r_id_selecionado)
 
     # Botão de limpeza do banco
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
