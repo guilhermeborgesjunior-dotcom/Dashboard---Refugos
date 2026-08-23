@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from io import BytesIO
 
-# Configuração da página (deve ser a primeira instrução)
+# Configuração da página
 st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
-# Estilos customizados (Cabeçalho azul marinho com imagem de usinagem translúcida e organização)
+# Estilos customizados (Cabeçalho azul marinho com imagem de usinagem translúcida)
 st.markdown("""
     <style>
     .header-container {
@@ -36,44 +35,43 @@ st.markdown("""
     
     <div class="header-container">
         <div class="header-title">⚙️ Dashboard de Refugos - WEG UFE</div>
-        <div class="header-subtitle">Gestão Avançada de Turnos, Perdas Operacionais e Análise de Causa Raiz</div>
+        <div class="header-subtitle">Gestão de Apontamentos da Aba "Notas" e Perdas Operacionais</div>
     </div>
 """, unsafe_allow_html=True)
 
-# Função para banco de dados
+# Inicializa o banco de dados
 def init_db():
     conn = sqlite3.connect('refugos_weg.db', timeout=10)
     conn.close()
 
 init_db()
 
-# ==================== MENU OCULTO (BARRA LATERAL) ====================
+# ==================== MENU LATERAL (OCULTO) ====================
 with st.sidebar:
     st.header("🛠️ Menu de Opções")
     
-    # Menu expansível que inicia oculto
     with st.expander("📂 Importar e Gerenciar Dados", expanded=False):
-        uploaded_file = st.file_uploader("Enviar Planilha (.xlsm, .xlsx, .csv)", type=["xlsx", "xls", "xlsm", "csv"])
+        uploaded_file = st.file_uploader("Enviar Planilha (.xlsm, .xlsx)", type=["xlsx", "xls", "xlsm"])
         if uploaded_file is not None:
             try:
-                if uploaded_file.name.endswith('.csv'):
-                    df_novo = pd.read_csv(uploaded_file)
-                else:
-                    df_novo = pd.read_excel(uploaded_file, engine='openpyxl')
+                # Lê especificamente a aba "Notas" da planilha
+                df_novo = pd.read_excel(uploaded_file, sheet_name='Notas', engine='openpyxl')
+                
+                # Padroniza os nomes das colunas para minúsculo e sem espaços excessivos
+                df_novo.columns = [str(c).strip().lower() for c in df_novo.columns]
 
                 conn = sqlite3.connect('refugos_weg.db', timeout=10)
-                df_novo.to_sql('tabela_refugos', conn, if_exists='replace', index=False)
+                df_novo.to_sql('tabela_notas', conn, if_exists='replace', index=False)
                 conn.close()
-                st.success("Planilha importada com sucesso!")
+                st.success("Aba 'Notas' importada com sucesso!")
             except Exception as e:
-                st.error(f"Erro ao importar: {e}")
+                st.error(f"Erro ao importar a aba 'Notas'. Verifique se o nome da aba está correto. Detalhe: {e}")
 
     with st.expander("📄 Gerar Relatórios", expanded=False):
-        st.write("Exportar Dados Filtrados:")
         if st.button("Gerar PDF com Gráficos"):
-            st.info("Função de relatório gráfico em PDF pronta para exportação.")
+            st.info("Função de relatório gráfico pronta.")
         if st.button("Gerar PDF para Reunião de Turno"):
-            st.info("Relatório executivo para alinhamento de chefes gerado.")
+            st.info("Relatório executivo gerado.")
 
     st.divider()
     st.subheader("🔍 Filtros de Análise")
@@ -81,62 +79,72 @@ with st.sidebar:
 # Carrega os dados do banco
 try:
     conn = sqlite3.connect('refugos_weg.db', timeout=10)
-    df = pd.read_sql('SELECT * FROM tabela_refugos', conn)
+    df = pd.read_sql('SELECT * FROM tabela_notas', conn)
     conn.close()
 except:
     df = pd.DataFrame()
 
 if not df.empty:
-    # Padroniza colunas para facilitar buscas
-    df_col_lower = {c: c.lower() for c in df.columns}
-    df = df.rename(columns=df_col_lower)
+    df.columns = [str(c).strip().lower() for c in df.columns]
 
-    # Identificação dinâmica de colunas comuns
-    col_data = next((c for c in df.columns if 'data' in c), None)
-    col_secao = next((c for c in df.columns if 'secao' in c or 'seção' in c or 'setor' in c), None)
-    col_turno = next((c for c in df.columns if 'turno' in c), None)
-    col_mes = next((c for c in df.columns if 'mes' in c or 'mês' in c), None)
-    col_ano = next((c for c in df.columns if 'ano' in c), None)
-    col_colab = next((c for c in df.columns if 'colaborador' in c or 'operador' in c or 'nome' in c), None)
-    col_nota = next((c for c in df.columns if 'nota' in c or 'observacao' in c or 'obs' in c), None)
+    # Função para encontrar colunas com flexibilidade de nomes
+    def encontra_coluna(termos):
+        for t in termos:
+            for c in df.columns:
+                if t in c:
+                    return c
+        return None
 
-    # ==================== BARRA LATERAL DE FILTROS ====================
+    col_secao = encontra_coluna(['seção', 'secao'])
+    col_defeito = encontra_coluna(['defeito'])
+    col_nota = encontra_coluna(['nota'])
+    col_data = encontra_coluna(['data'])
+    col_turno = encontra_coluna(['turno'])
+    col_material = encontra_coluna(['material'])
+    col_desc_mat = encontra_coluna(['descrição do material', 'descricao do material'])
+    col_ct = encontra_coluna(['ct causador'])
+    col_qtd = encontra_coluna(['quantidade'])
+    col_desc_feito = encontra_coluna(['descrição do feito', 'descricao do feito', 'descrição do defeito', 'descricao do defeito'])
+    col_causa = encontra_coluna(['causa'])
+    col_texto_causa = encontra_coluna(['texto da causa'])
+    col_custo = encontra_coluna(['custo'])
+    col_obs = encontra_coluna(['observaçao', 'observacao'])
+    col_acao = encontra_coluna(['ação', 'acao'])
+    col_colab = encontra_coluna(['colaborador', 'colcaborador'])
+    col_prep = encontra_coluna(['preparador'])
+
+    # ==================== FILTROS NA BARRA LATERAL ====================
     with st.sidebar:
-        # 7 - Campo para pesquisar nota/observação
-        pesquisa_nota = st.text_input("Pesquisar na Nota / Obs:")
+        pesquisa_nota = st.text_input("Pesquisar Nota:")
 
-        # 2 - Seção (Todas, A, B, C, D, E, F)
-        secoes_disponiveis = ["Todas"] + sorted(df[col_secao].dropna().astype(str).unique().tolist()) if col_secao else ["Todas"]
-        filtro_secao = st.selectbox("Seção", secoes_disponiveis)
+        secoes_opcoes = ["Todas"] + sorted(df[col_secao].dropna().astype(str).unique().tolist()) if col_secao else ["Todas"]
+        filtro_secao = st.selectbox("Seção", secoes_opcoes)
 
-        # 3 - Turno (Todos, 1, 2, 3)
-        turnos_disponiveis = ["Todos"] + sorted(df[col_turno].dropna().astype(str).unique().tolist()) if col_turno else ["Todos"]
-        filtro_turno = st.selectbox("Turno", turnos_disponiveis)
+        turnos_opcoes = ["Todos"] + sorted(df[col_turno].dropna().astype(str).unique().tolist()) if col_turno else ["Todos"]
+        filtro_turno = st.selectbox("Turno", turnos_opcoes)
 
-        # 4 & 5 - Mês e Ano
-        meses_disponiveis = ["Todos"] + sorted(df[col_mes].dropna().astype(str).unique().tolist()) if col_mes else ["Todos"]
-        filtro_mes = st.selectbox("Mês", meses_disponiveis)
-
-        anos_disponiveis = ["Todos"] + sorted(df[col_ano].dropna().astype(str).unique().tolist()) if col_ano else ["Todos"]
-        filtro_ano = st.selectbox("Ano", anos_disponiveis)
-
-        # 6 - Colaborador
-        colabs_disponiveis = ["Todos"] + sorted(df[col_colab].dropna().astype(str).unique().tolist()) if col_colab else ["Todos"]
-        filtro_colab = st.selectbox("Colaborador", colabs_disponiveis)
-
-        # 1 - Calendário para filtrar por data
         if col_data:
-            st.write("Filtro por Período:")
-            try:
-                df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
-                min_date = df[col_data].min().date() if not df[col_data].isnull().all() else pd.to_datetime("2026-01-01").date()
-                max_date = df[col_data].max().date() if not df[col_data].isnull().all() else pd.to_datetime("2026-12-31").date()
-                data_inicio = st.date_input("Data Inicial", min_date)
-                data_fim = st.date_input("Data Final", max_date)
-            except:
-                data_inicio, data_fim = None, None
+            df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
+            df['__ano__'] = df[col_data].dt.year
+            df['__mes__'] = df[col_data].dt.month
 
-    # Aplicando os Filtros no DataFrame
+        meses_opcoes = ["Todos"] + sorted(df['__mes__'].dropna().astype(int).astype(str).unique().tolist()) if '__mes__' in df.columns else ["Todos"]
+        filtro_mes = st.selectbox("Mês", meses_opcoes)
+
+        anos_opcoes = ["Todos"] + sorted(df['__ano__'].dropna().astype(int).astype(str).unique().tolist()) if '__ano__' in df.columns else ["Todos"]
+        filtro_ano = st.selectbox("Ano", anos_opcoes)
+
+        colab_opcoes = ["Todos"] + sorted(df[col_colab].dropna().astype(str).unique().tolist()) if col_colab else ["Todos"]
+        filtro_colab = st.selectbox("Colaborador", colab_opcoes)
+
+        if col_data:
+            st.write("Período de Data:")
+            min_d = df[col_data].min().date() if not df[col_data].isnull().all() else pd.to_datetime("2026-01-01").date()
+            max_d = df[col_data].max().date() if not df[col_data].isnull().all() else pd.to_datetime("2026-12-31").date()
+            data_ini = st.date_input("Data Inicial", min_d)
+            data_fim = st.date_input("Data Final", max_d)
+
+    # Aplicando os filtros
     df_filtrado = df.copy()
 
     if pesquisa_nota and col_nota:
@@ -145,27 +153,51 @@ if not df.empty:
         df_filtrado = df_filtrado[df_filtrado[col_secao].astype(str) == filtro_secao]
     if filtro_turno != "Todos" and col_turno:
         df_filtrado = df_filtrado[df_filtrado[col_turno].astype(str) == filtro_turno]
-    if filtro_mes != "Todos" and col_mes:
-        df_filtrado = df_filtrado[df_filtrado[col_mes].astype(str) == filtro_mes]
-    if filtro_ano != "Todos" and col_ano:
-        df_filtrado = df_filtrado[df_filtrado[col_ano].astype(str) == filtro_ano]
+    if filtro_mes != "Todos" and '__mes__' in df_filtrado.columns:
+        df_filtrado = df_filtrado[df_filtrado['__mes__'].astype(str) == filtro_mes]
+    if filtro_ano != "Todos" and '__ano__' in df_filtrado.columns:
+        df_filtrado = df_filtrado[df_filtrado['__ano__'].astype(str) == filtro_ano]
     if filtro_colab != "Todos" and col_colab:
         df_filtrado = df_filtrado[df_filtrado[col_colab].astype(str) == filtro_colab]
-    if col_data and data_inicio and data_fim:
-        df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_inicio) & (df_filtrado[col_data].dt.date <= data_fim)]
+    if col_data and 'data_ini' in locals() and 'data_fim' in locals():
+        df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # ==================== EXIBIÇÃO DO DASHBOARD ====================
-    st.subheader(f"📊 Resultados Filtrados ({len(df_filtrado)} registros encontrados)")
-    
-    st.dataframe(df_filtrado, use_container_width=True)
+    # Dicionário de mapeamento para renomear e ordenar exatamente como solicitado
+    mapeamento_colunas = {
+        col_secao: "seção",
+        col_defeito: "defeito",
+        col_nota: "nota",
+        col_data: "data",
+        col_turno: "turno",
+        col_material: "material",
+        col_desc_mat: "descrição do material",
+        col_ct: "ct causador",
+        col_qtd: "quantidade",
+        col_desc_feito: "descrição do defeito",
+        col_causa: "causa",
+        col_texto_causa: "texto da causa",
+        col_custo: "custo",
+        col_obs: "observação",
+        col_acao: "ação",
+        col_colab: "colaborador",
+        col_prep: "preparador"
+    }
 
-    # Botão de limpeza do banco
+    # Seleciona e ordena as colunas na sequência exata da lista
+    colunas_presentes = [k for k in mapeamento_colunas.keys() if k is not None]
+    df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
+
+    # ==================== EXIBIÇÃO NA TELA ====================
+    st.subheader(f"📊 Registros Encontrados ({len(df_exibicao)})")
+    st.dataframe(df_exibicao, use_container_width=True)
+
+    # Botão de limpeza
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
         conn = sqlite3.connect('refugos_weg.db', timeout=10)
-        conn.execute('DROP TABLE IF EXISTS tabela_refugos')
+        conn.execute('DROP TABLE IF EXISTS tabela_notas')
         conn.commit()
         conn.close()
         st.rerun()
 
 else:
-    st.warning("⚠️ O banco de dados está vazio. Utilize o menu lateral esquerdo (clique em '📂 Importar e Gerenciar Dados') para enviar a sua planilha `.xlsm` de agosto.")
+    st.warning("⚠️ O banco de dados está vazio. Vá no menu lateral esquerdo, abra '📂 Importar e Gerenciar Dados' e envie a planilha. O sistema buscará automaticamente os dados na aba **'Notas'**.")
