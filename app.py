@@ -288,11 +288,11 @@ if not df.empty:
                     conn.close()
                     
                     st.success("Nota atualizada com sucesso!")
-                    st.rerun()
+                    st.rerun() # O st.rerun fecha o modal e recarrega a tela limpa
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
 
-    # ==================== EXIBIÇÃO DA TABELA ÚNICA COM CABEÇALHO CONGELADO ====================
+    # ==================== EXIBIÇÃO DA TABELA ÚNICA COM BOTÃO DE EDIÇÃO NO FINAL ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
 
     mapeamento_colunas = {
@@ -315,8 +315,10 @@ if not df.empty:
         col_prep: "preparador"
     }
 
+    # Organiza as colunas e coloca o botão "Editar" por último (no final da lista)
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
+    df_exibicao["⚙️ Ações"] = "✏️ Editar"
 
     evento_selecao = st.dataframe(
         df_exibicao.drop(columns=['rowid']),
@@ -324,9 +326,13 @@ if not df.empty:
         hide_index=True,
         height=450,
         selection_mode="single-row",
-        on_select="rerun"
+        on_select="rerun",
+        column_config={
+            "⚙️ Ações": st.column_config.TextColumn("⚙️ Ações", help="Clique na linha e abra o pop-up de edição")
+        }
     )
 
+    # Dispara a abertura do pop-up quando a linha inteira for selecionada ou clicada (incluindo duplo clique)
     if evento_selecao and evento_selecao.selection.rows:
         linha_selecionada_idx = evento_selecao.selection.rows[0]
         r_id_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
