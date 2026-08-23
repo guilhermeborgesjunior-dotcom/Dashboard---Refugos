@@ -5,7 +5,7 @@ import sqlite3
 # Configuração da página (deve ser a primeira instrução)
 st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
-# Estilos customizados para largura total, cabeçalho, menu hamburger e destaque da linha selecionada (Tom rosa/vermelho claro)
+# Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
 st.markdown("""
     <style>
     .block-container {
@@ -69,7 +69,7 @@ def init_db():
 
 init_db()
 
-# ==================== MENU LATERAL ====================
+# ==================== MENU LATERAL (OCULTO / HAMBÚRGUER DIREITO) ====================
 with st.sidebar:
     st.header("🛠️ Menu de Opções")
     
@@ -134,6 +134,7 @@ if not df.empty:
     col_colab = encontra_coluna(['colaborador', 'colcaborador'])
     col_prep = encontra_coluna(['preparador'])
 
+    # Função auxiliar para formatar valores inteiros limpos (sem .0)
     def limpa_inteiro(val):
         if pd.notna(val):
             try:
@@ -142,6 +143,7 @@ if not df.empty:
                 return str(val)
         return ""
 
+    # Função auxiliar para formatar custo em Real
     def formata_custo(val):
         if pd.notna(val):
             try:
@@ -199,14 +201,13 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # ==================== POP-UP DE EDIÇÃO DA NOTA (MODO EDIÇÃO) ====================
-    @st.dialog("✏️ Modo de Edição da Nota", width="large")
+    # ==================== POP-UP DE EDIÇÃO DA NOTA ====================
+    @st.dialog("✏️ Painel de Edição da Nota", width="large")
     def modal_edicao(rowid_alvo):
         linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
         num_nota = limpa_inteiro(linha_atual[col_nota]) if col_nota else 'N/A'
         
-        st.markdown(f"### ✏️ Editando Nota: `{num_nota}` (Linha em Edição)")
-        st.info("💡 Modifique os campos abaixo. Ao salvar, os dados serão atualizados imediatamente e a seleção da linha será mantida.")
+        st.markdown(f"### ✏️ Editando Nota: `{num_nota}`")
 
         with st.form(f"form_modal_{rowid_alvo}"):
             c1, c2, c3 = st.columns(3)
@@ -300,7 +301,7 @@ if not df.empty:
 
     # ==================== EXIBIÇÃO DA TABELA UNIFICADA INTERATIVA ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
-    st.markdown("💡 **Instruções:** Clique em **qualquer célula** para selecionar a linha inteira instantaneamente. Para entrar no modo de edição (duplo clique), selecione a linha e utilize o botão dedicado de edição rápida abaixo.")
+    st.markdown("💡 **Instruções:** Clique em **qualquer célula** da tabela para selecionar a linha correspondente.")
 
     mapeamento_colunas = {
         col_secao: "seção",
@@ -325,19 +326,9 @@ if not df.empty:
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
-    # Função de estilo para destacar a linha selecionada com fundo em tom rosa/vermelho-claro suave
-    def estilizar_linha_selecionada(row):
-        rowid_atual = df_exibicao.iloc[row.name]['rowid']
-        selecionado = st.session_state.get('rowid_selecionado') == rowid_atual
-        if selecionado:
-            return ['background-color: #fde8e8; color: #9b1c1c; font-weight: 600; border-top: 1px solid #f8b4b4; border-bottom: 1px solid #f8b4b4;' for _ in row]
-        return ['' for _ in row]
-
-    df_estilizado = df_exibicao.drop(columns=['rowid']).style.apply(estilizar_linha_selecionada, axis=1)
-
-    # Tabela limpa configurada para seleção por clique simples na linha inteira (sem checkboxes laterais)
+    # Tabela unificada interativa padrão
     evento_tabela = st.dataframe(
-        df_estilizado,
+        df_exibicao.drop(columns=['rowid']),
         use_container_width=True,
         hide_index=True,
         height=420,
@@ -346,13 +337,15 @@ if not df.empty:
     )
 
     # Gerenciamento de estado da seleção de linha única
+    rowid_selecionado = None
     if evento_tabela and evento_tabela.selection.rows:
         linha_selecionada_idx = evento_tabela.selection.rows[0]
-        st.session_state['rowid_selecionado'] = df_exibicao.iloc[linha_selecionada_idx]['rowid']
+        rowid_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
+        st.session_state['rowid_selecionado'] = rowid_selecionado
+    elif 'rowid_selecionado' in st.session_state:
+        rowid_selecionado = st.session_state['rowid_selecionado']
 
-    rowid_selecionado = st.session_state.get('rowid_selecionado')
-
-    # Barra de controle interativa e painel de edição associado à seleção
+    # Barra de controle para a linha selecionada
     if rowid_selecionado:
         st.divider()
         col_info_sel, col_btn_edit = st.columns([3, 1])
@@ -360,11 +353,11 @@ if not df.empty:
             nota_sel_obj = df[df['rowid'] == rowid_selecionado]
             if not nota_sel_obj.empty and col_nota:
                 val_n = limpa_inteiro(nota_sel_obj.iloc[0][col_nota])
-                st.markdown(f"✅ **Linha Selecionada:** Nota `#{val_n}` destacada em tom avermelhado.")
+                st.markdown(f"✅ **Linha selecionada:** Nota `#{val_n}` ativa.")
             else:
-                st.markdown("✅ **Linha Selecionada:** Registro ativo destacado.")
+                st.markdown("✅ **Linha selecionada:** Registro ativo.")
         with col_btn_edit:
-            if st.button("✏️ Abrir Edição (Duplo Clique)", type="primary", use_container_width=True):
+            if st.button("✏️ Abrir Painel de Edição", type="primary", use_container_width=True):
                 modal_edicao(rowid_selecionado)
 
     # Botão de limpeza do banco
