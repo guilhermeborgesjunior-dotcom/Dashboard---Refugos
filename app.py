@@ -8,7 +8,7 @@ st.title("⚠️ Dashboard Refugos - UFE")
 st.caption("Monitoramento de perdas operacionais e análise de causa raiz")
 
 # Importação de arquivo (Excel ou CSV)
-uploaded_file = st.sidebar.file_uploader("Importar arquivo (Excel ou CSV)", type=["xlsx", "xls", "csv"])
+uploaded_file = st.sidebar.file_uploader("Importar arquivo (Excel ou CSV)", type=["xlsx", "xls", "xlsm", "csv"])
 
 if uploaded_file is not None:
     # Leitura do arquivo
