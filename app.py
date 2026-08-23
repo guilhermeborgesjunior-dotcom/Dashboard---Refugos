@@ -71,10 +71,8 @@ st.markdown("""
     border-left: 4px solid;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
-.metric-card.notas { border-color: #3b82f6; }
 .metric-card.qtd  { border-color: #10b981; }
 .metric-card.custo { border-color: #f59e0b; }
-.metric-card.apq   { border-color: #8b5cf6; }
 .metric-value { font-size: 1.8rem; font-weight: 700; line-height: 1.2; }
 .metric-label { font-size: 0.85rem; color: #64748b; }
 div[data-testid="stDataFrame"] { border-radius: 8px; }
@@ -259,7 +257,7 @@ def salvar_dados(df_novo):
     return len(df_novo), novas
 
 # ============================================================
-# 📂 BARRA LATERAL — TODOS OS FILTROS E BOTÃO RESTAURADOS
+# 📂 BARRA LATERAL — SEM ADMINISTRAÇÃO
 # ============================================================
 with st.sidebar:
     st.header("📂 Importar Dados")
@@ -322,15 +320,6 @@ with st.sidebar:
             salvar_preferencias(prefs)
             st.toast("✅ Preferência salva!")
 
-    st.divider()
-    st.header("⚠️ Administração")
-    if st.button("🗑️ Limpar Banco", type="secondary"):
-        if DB_PATH.exists():
-            DB_PATH.unlink()
-            PREFS_FILE.unlink(missing_ok=True)
-            st.success("✅ Banco apagado! Reimporte o arquivo.")
-            st.rerun()
-
 # ============================================================
 # CARREGAR DADOS
 # ============================================================
@@ -370,28 +359,16 @@ if f_mes != "Todos":
     df_f = df_f[df_f["__mes__"].astype(str) == f_mes]
 
 # ============================================================
-# 📊 INDICADORES
+# 📊 APENAS Quantidade e Custo — SEM Notas Únicas e SEM APQ
 # ============================================================
 st.markdown(f"### 📊 Visão Geral · {len(df_f)} registros")
 
-total_notas = df_f[col_nota].nunique() if col_nota else 0
 qtd_total = df_f[col_qtd].apply(converter_quantidade_inteira).sum() if col_qtd else 0
 custo_total = df_f[col_custo].apply(converter_custo).sum() if col_custo else 0
-total_registros = len(df_f)
-concluidas = df_f[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum() if col_apq else 0
-perc_apq = (concluidas / total_registros * 100) if total_registros > 0 else 0
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2 = st.columns(2)
 
 with c1:
-    st.markdown(f"""
-    <div class="metric-card notas">
-        <div class="metric-label">📋 Notas Únicas</div>
-        <div class="metric-value">{total_notas:,}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c2:
     st.markdown(f"""
     <div class="metric-card qtd">
         <div class="metric-label">📦 Quantidade Total</div>
@@ -399,20 +376,11 @@ with c2:
     </div>
     """, unsafe_allow_html=True)
 
-with c3:
+with c2:
     st.markdown(f"""
     <div class="metric-card custo">
         <div class="metric-label">💰 Custo Total</div>
         <div class="metric-value">R$ {custo_total:,.2f}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c4:
-    st.markdown(f"""
-    <div class="metric-card apq">
-        <div class="metric-label">✅ APQ Concluídas</div>
-        <div class="metric-value">{concluidas} / {total_registros}</div>
-        <div style="font-size:0.85rem; color:#6b7280;">{perc_apq:.1f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
