@@ -3,6 +3,7 @@ import pandas as pd
 import sqlite3
 from pathlib import Path
 from datetime import datetime, date
+import traceback
 
 # ============================================================
 # CONFIGURAÇÃO
@@ -45,7 +46,7 @@ st.markdown("""
 # BANCO DE DADOS
 # ============================================================
 def get_connection():
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
@@ -58,7 +59,6 @@ def table_exists():
     finally: conn.close()
 
 def remover_colunas_extras(df):
-    """Remove colunas indesejadas antes de salvar/exibir"""
     cols = [c for c in df.columns if str(c).strip().lower() not in COLUNAS_IGNORAR]
     return df[cols]
 
@@ -69,7 +69,7 @@ def load_data():
         df = pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
         return remover_colunas_extras(df)
     except Exception as e:
-        st.error(f"Erro ao carregar: {e}")
+        st.error(f"Erro ao carregar banco: {e}")
         return pd.DataFrame()
     finally: conn.close()
 
@@ -105,19 +105,100 @@ def parse_valor_numerico(valor):
     except: return 0
 
 # ============================================================
-# IMPORTAÇÃO AUTOMÁTICA — SEM BOTÃO!
+# 📂 LEITURA ROBUSTA DO ARQUIVO
 # ============================================================
-def import_excel(uploaded_file):
-    suffix = Path(uploaded_file.name).suffix.lower()
-    if suffix == ".xls":
-        return pd.read_excel(uploaded_file, sheet_name="Notas", engine="xlrd")
-    return pd.read_excel(uploaded_file, sheet_name="Notas", engine="openpyxl")
+def ler_arquivo_excel(arquivo_carregado):
+    """
+    Tenta várias formas de ler o arquivo Excel.
+    Se não encontrar a aba "Notas", lista as abas disponíveis.
+    """
+    nome_arquivo = arquivo_carregado.name
+    sufixo = Path(nome_arquivo).suffix.lower()
+    
+    # Salva temporariamente para ler com mais opções
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=sufixo) as tmp:
+        tmp.write(arquivo_carregado.getvalue())
+        caminho_temp = tmp.name
+    
+    try:
+        # Tenta 1: openpyxl (padrão para xlsx/xlsm)
+        try:
+            xl = pd.ExcelFile(caminho_temp, engine="openpyxl")
+            abas = xl.sheet_names
+            st.info(f"📑 Abas encontradas: {', '.join(abas)}")
+            
+            # Procura por "Notas" ou similar
+            alvo = None
+            for aba in abas:
+                if "nota" in aba.lower():
+                    alvo = aba
+                    break
+            
+            if alvo is None:
+                raise ValueError(
+                    f"Aba 'Notas' não encontrada!\nAbas disponíveis: {', '.join(abas)}"
+                )
+            
+            st.info(f"📖 Lendo aba: {alvo}")
+            df = pd.read_excel(caminho_temp, sheet_name=alvo, engine="openpyxl")
+            return df
+            
+        except Exception as e1:
+            st.warning(f"Tentativa 1 falhou: {str(e1)[:100]}")
+            
+            # Tenta 2: xlrd para arquivos antigos
+            if sufixo == ".xls":
+                try:
+                    xl = pd.ExcelFile(caminho_temp, engine="xlrd")
+                    abas = xl.sheet_names
+                    st.info(f"📑 Abas encontradas: {', '.join(abas)}")
+                    
+                    alvo = None
+                    for aba in abas:
+                        if "nota" in aba.lower():
+                            alvo = aba
+                            break
+                    
+                    if alvo:
+                        st.info(f"📖 Lendo aba: {alvo}")
+                        df = pd.read_excel(caminho_temp, sheet_name=alvo, engine="xlrd")
+                        return df
+                except Exception as e2:
+                    st.warning(f"Tentativa 2 falhou: {str(e2)[:100]}")
+            
+            # Tenta 3: ler a PRIMEIRA aba automaticamente
+            try:
+                st.info("📖 Tentando ler a PRIMEIRA aba do arquivo...")
+                df = pd.read_excel(caminho_temp, sheet_name=0, engine="openpyxl")
+                st.success("✅ Leitura da primeira aba bem-sucedida!")
+                return df
+            except Exception as e3:
+                raise RuntimeError(
+                    f"Não foi possível ler o arquivo.\n"
+                    f"Erro final: {str(e3)}\n"
+                    f"Dica: Verifique se o arquivo não está protegido por senha ou corrompido."
+                )
+    finally:
+        # Limpa arquivo temporário
+        try:
+            Path(caminho_temp).unlink()
+        except:
+            pass
 
+# ============================================================
+# 💾 SALVAR DADOS
+# ============================================================
 def salvar_dados(df_novo):
     df_novo = remover_colunas_extras(df_novo)
     col_nota = find_column(df_novo, ["nota"])
+    
     if not col_nota:
-        raise ValueError("Coluna 'Nota' não encontrada na aba 'Notas'")
+        # Mostra as colunas para ajudar a diagnosticar
+        st.error("Coluna 'Nota' não encontrada!")
+        st.write("Colunas disponíveis no arquivo:")
+        st.write(list(df_novo.columns))
+        raise ValueError("Coluna 'Nota' não encontrada na planilha")
 
     df_novo[col_nota] = df_novo[col_nota].astype(str).str.strip()
     conn = get_connection()
@@ -144,7 +225,7 @@ def salvar_dados(df_novo):
     return len(df_novo), novas
 
 # ============================================================
-# 📂 MENU LATERAL — IMPORTACAO AUTOMÁTICA
+# 📂 MENU LATERAL — IMPORTAÇÃO AUTOMÁTICA
 # ============================================================
 with st.sidebar:
     st.header("🛠️ Menu de Opções")
@@ -157,17 +238,21 @@ with st.sidebar:
         # ✅ LEITURA AUTOMÁTICA — SEM BOTÃO!
         if arq is not None:
             try:
-                st.info(f"📖 Lendo: {arq.name}...")
-                df = import_excel(arq)
+                st.info(f"📖 Processando: {arq.name}...")
+                df = ler_arquivo_excel(arq)
+                
                 if df.empty:
-                    st.warning("⚠️ A aba 'Notas' está vazia.")
+                    st.warning("⚠️ A planilha está vazia.")
                 else:
                     df = normalize_columns(df)
                     total, novas = salvar_dados(df)
-                    st.success(f"✅ {total} registros importados! ({novas} novos)")
-                    st.rerun()  # ✅ Atualiza a tela automaticamente
+                    st.success(f"✅ {total} registros importados! ({novas} novas notas)")
+                    st.rerun()
+                    
             except Exception as e:
-                st.error(f"❌ Erro: {str(e)}")
+                st.error(f"❌ ERRO: {str(e)}")
+                with st.expander("🔍 Ver detalhes técnicos"):
+                    st.code(traceback.format_exc())
 
     st.divider()
     st.subheader("🔍 Filtros")
