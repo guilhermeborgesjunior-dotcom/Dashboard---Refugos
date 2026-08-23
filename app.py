@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -184,14 +183,13 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # ==================== POP-UP DE EDIÇÃO DA NOTA (SEM ABAS) ====================
-    @st.dialog("✏️ Edição Completa da Nota de Refugo", width="large")
+    # ==================== POP-UP DE EDIÇÃO DA NOTA (COMPACTO E SEM ABAS) ====================
+    @st.dialog("✏️", width="large")
     def modal_edicao(rowid_alvo):
         linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
-        
         num_nota = linha_atual[col_nota] if col_nota and pd.notna(linha_atual[col_nota]) else 'N/A'
-        st.markdown(f"### 📋 Nota de Referência: `{num_nota}`")
-        st.write("Edite abaixo todas as informações correspondentes a esta nota:")
+        
+        st.markdown(f"**Nota de Referência:** `{num_nota}`")
 
         with st.form(f"form_modal_{rowid_alvo}"):
             c1, c2, c3 = st.columns(3)
@@ -223,8 +221,6 @@ if not df.empty:
                 val_causa = str(linha_atual[col_causa]) if col_causa and pd.notna(linha_atual[col_causa]) else ""
                 nova_causa = st.text_input("Causa", value=val_causa)
 
-            st.divider()
-
             col_a, col_b = st.columns(2)
             with col_a:
                 val_colab = str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else ""
@@ -238,7 +234,7 @@ if not df.empty:
             nova_acao = st.text_input("Ação corretiva/operacional:", value=val_acao)
 
             val_obs = str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else ""
-            novo_obs = st.text_area("Informações (Observação):", value=val_obs, height=100)
+            novo_obs = st.text_area("Informações (Observação):", value=val_obs, height=80)
 
             st.write("")
             salvar = st.form_submit_button("💾 Salvar Alterações da Nota", type="primary")
