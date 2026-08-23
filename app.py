@@ -48,20 +48,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# 🔧 FUNÇÕES DE LIMPEZA
+# 🔧 FUNÇÕES DE LIMPEZA E CONVERSÃO
 # ============================================================
 def limpar_nota(valor):
-    """✅ Remove .0, pontos de milhar e tudo que não for número"""
     if pd.isna(valor): return ""
     s = str(valor).strip()
-    s = re.sub(r'\.0+$', '', s)    # Remove .0 no final
-    s = re.sub(r'\.\d+$', '', s)    # Remove qualquer decimal
-    s = s.replace('.', '').replace(',', '')  # Remove pontos/vírgulas
-    s = re.sub(r'[^0-9]', '', s)    # Mantém só números
+    s = re.sub(r'\.0+$', '', s)
+    s = re.sub(r'\.\d+$', '', s)
+    s = s.replace('.', '').replace(',', '')
+    s = re.sub(r'[^0-9]', '', s)
     return s
 
 def limpar_coluna_nota(df, col_nota):
-    """✅ Aplica limpeza em toda a coluna NOTA de um DataFrame"""
     if col_nota and col_nota in df.columns:
         df[col_nota] = df[col_nota].apply(limpar_nota)
     return df
@@ -79,6 +77,34 @@ def formatar_data_br(valor):
         if pd.notna(dt): return dt.strftime("%d/%m/%Y")
     except: pass
     return s
+
+def converter_quantidade_inteira(valor):
+    """✅ Converte quantidade para NÚMERO INTEIRO"""
+    if pd.isna(valor) or str(valor).strip() == "":
+        return 0
+    s = str(valor).strip()
+    # Remove pontos de milhar e troca vírgula decimal por ponto
+    s = s.replace(".", "").replace(",", ".")
+    try:
+        return int(round(float(s)))
+    except:
+        return 0
+
+def converter_custo(valor):
+    """✅ Converte custo para valor monetário"""
+    if pd.isna(valor) or str(valor).strip() == "":
+        return 0.0
+    s = str(valor).strip().replace("R$", "").replace(" ", "")
+    # Se tem vírgula E ponto: ponto é milhar, vírgula é decimal
+    if "." in s and "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    # Se só tem vírgula: é decimal
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except:
+        return 0.0
 
 # ============================================================
 # BANCO DE DADOS
@@ -108,7 +134,6 @@ def load_data():
     conn = get_connection()
     try:
         df = pd.read_sql(f'SELECT rowid, * FROM "{TABLE_NAME}"', conn)
-        # ✅ LIMPA NOTAS ao carregar do banco
         col_nota = find_column(df, ["nota"])
         df = limpar_coluna_nota(df, col_nota)
         return df
@@ -116,12 +141,6 @@ def load_data():
         st.error(f"Erro: {e}")
         return pd.DataFrame()
     finally: conn.close()
-
-def parse_valor_numerico(valor):
-    if pd.isna(valor) or str(valor).strip() == "": return 0
-    s = str(valor).strip().replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
-    try: return float(s)
-    except: return 0
 
 # ============================================================
 # 🚀 LEITURA OTIMIZADA
@@ -139,6 +158,7 @@ def ler_arquivo_otimizado(arquivo_carregado):
     nomes = list(COLUNAS_IMPORTAR.keys())
     idx_nota = nomes.index("NOTA")
     idx_data = nomes.index("DATA")
+    idx_qtd = nomes.index("QUANTIDADE")
     
     dados = []
     for i, linha in enumerate(ws.iter_rows(min_row=2, values_only=True)):
@@ -151,9 +171,11 @@ def ler_arquivo_otimizado(arquivo_carregado):
             if idx < len(linha):
                 valor = linha[idx]
                 if j == idx_nota:
-                    valor = limpar_nota(valor)  # ✅ NOTA LIMPA
+                    valor = limpar_nota(valor)
                 elif j == idx_data:
-                    valor = formatar_data_br(valor)  # ✅ DATA BR
+                    valor = formatar_data_br(valor)
+                elif j == idx_qtd:
+                    valor = converter_quantidade_inteira(valor)  # ✅ Quantidade inteira
                 elif isinstance(valor, datetime):
                     valor = valor.strftime("%d/%m/%Y")
                 registro.append(valor)
@@ -164,7 +186,7 @@ def ler_arquivo_otimizado(arquivo_carregado):
     wb.close()
     df = pd.DataFrame(dados, columns=nomes)
     
-    # ✅ Remove duplicatas
+    # Remove duplicatas
     df = df.drop_duplicates(subset=["NOTA"], keep="first")
     
     # Colunas extras
@@ -181,7 +203,6 @@ def salvar_dados(df_novo):
     col_nota = find_column(df_novo, ["nota"])
     if not col_nota: raise ValueError("Coluna 'Nota' não encontrada!")
     
-    # ✅ LIMPA notas do arquivo novo
     df_novo = limpar_coluna_nota(df_novo, col_nota)
     df_novo = df_novo.drop_duplicates(subset=[col_nota], keep="first")
     
@@ -192,10 +213,8 @@ def salvar_dados(df_novo):
         col_nota_ant = find_column(df_antigo, ["nota"])
         
         if col_nota_ant:
-            # ✅ LIMPA notas do banco antigo também
             df_antigo = limpar_coluna_nota(df_antigo, col_nota_ant)
             
-            # Preserva colunas de edição
             cols_pres = [c for c in 
                 ["Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP", col_nota_ant]
                 if c in df_antigo.columns]
@@ -207,7 +226,6 @@ def salvar_dados(df_novo):
                 df_novo = df_novo.merge(df_pres, on=col_nota, how="left")
             
             df_final = pd.concat([df_novo, df_antigo]).drop_duplicates(subset=col_nota, keep="first")
-            # ✅ LIMPA notas no final
             df_final = limpar_coluna_nota(df_final, col_nota)
             novas = len(set(df_novo[col_nota].unique()) - set(df_antigo[col_nota_ant].unique()))
         else:
@@ -243,13 +261,12 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"❌ {str(e)}")
     
-    # ✅ Botão para LIMPAR banco e reimportar
     st.divider()
     st.subheader("⚠️ Administração")
-    if st.button("🗑️ Limpar Banco e Reimportar"):
+    if st.button("🗑️ Limpar Banco"):
         if DB_PATH.exists():
             DB_PATH.unlink()
-            st.success("✅ Banco apagado! Importe o arquivo novamente.")
+            st.success("✅ Banco apagado!")
             st.rerun()
     
     st.divider()
@@ -260,7 +277,7 @@ with st.sidebar:
 # ============================================================
 df = load_data()
 if df.empty:
-    st.warning("⚠️ Banco vazio → Importe sua planilha no menu lateral 👆")
+    st.warning("⚠️ Banco vazio → Importe sua planilha 👆")
     st.stop()
 
 col_nota = find_column(df, ["nota"])
@@ -307,18 +324,39 @@ if f_ano != "Todos":
     df_f = df_f[df_f["__ano__"].astype(str) == f_ano]
 
 # ============================================================
-# INDICADORES
+# 📊 CÁLCULO DOS INDICADORES
 # ============================================================
 st.subheader(f"📊 Registros: {len(df_f):,}")
 c1, c2, c3, c4 = st.columns(4)
-with c1: st.metric("📋 Notas Únicas", f"{df_f[col_nota].nunique():,}" if col_nota else "N/D")
-with c2: st.metric("📦 Quantidade", f"{df_f[col_qtd].apply(parse_valor_numerico).sum():,.0f}" if col_qtd else "N/D")
-with c3: st.metric("💰 Custo Total", f"R$ {df_f[col_custo].apply(parse_valor_numerico).sum():,.2f}" if col_custo else "N/D")
+
+# ✅ 1. Total de Notas Únicas
+with c1:
+    total_notas = df_f[col_nota].nunique() if col_nota else 0
+    st.metric("📋 Notas Únicas", f"{total_notas:,}")
+
+# ✅ 2. Quantidade Total (INTEIRA)
+with c2:
+    if col_qtd:
+        qtd_total = df_f[col_qtd].apply(converter_quantidade_inteira).sum()
+        st.metric("📦 Quantidade", f"{int(qtd_total):,}")  # Inteiro
+    else:
+        st.metric("📦 Quantidade", "N/D")
+
+# ✅ 3. Custo Total
+with c3:
+    if col_custo:
+        custo_total = df_f[col_custo].apply(converter_custo).sum()
+        st.metric("💰 Custo Total", f"R$ {custo_total:,.2f}")
+    else:
+        st.metric("💰 Custo Total", "N/D")
+
+# ✅ 4. APQ Concluídas
 with c4:
     if col_apq:
-        c = df_f[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum()
-        st.metric("✅ APQ", f"{c} / {len(df_f)}")
-    else: st.metric("✅ APQ", "N/D")
+        concluidas = df_f[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum()
+        st.metric("✅ APQ", f"{concluidas:,} / {len(df_f):,}")
+    else:
+        st.metric("✅ APQ", "N/D")
 
 # ============================================================
 # TABELA
@@ -329,6 +367,8 @@ df_edit = df_f[cols_exibir].copy()
 cfg = {}
 if col_apq:
     cfg[col_apq] = st.column_config.SelectboxColumn("APQ", options=["Pendente", "Concluída"], required=True)
+if col_qtd:
+    cfg[col_qtd] = st.column_config.NumberColumn("QUANTIDADE", format="%d")  # ✅ Mostra como inteiro
 
 df_salvo = st.data_editor(
     df_edit, use_container_width=True, hide_index=True, num_rows="fixed",
