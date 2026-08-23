@@ -1,4 +1,4 @@
-import streamlit as st
+=import streamlit as st
 import pandas as pd
 import sqlite3
 
@@ -288,12 +288,13 @@ if not df.empty:
                     conn.close()
                     
                     st.success("Nota atualizada com sucesso!")
-                    st.rerun() # Fecha o pop-up automaticamente ao salvar
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
 
-    # ==================== EXIBIÇÃO DA TABELA FORMATADA (SEM CHECKBOX) ====================
+    # ==================== EXIBIÇÃO DA TABELA UNIFICADA INTERATIVA ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
+    st.info("💡 **Dica:** Clique em qualquer célula (na data, na nota, no material, etc.) de qualquer linha para abrir o painel de edição instantaneamente.")
 
     mapeamento_colunas = {
         col_secao: "seção",
@@ -317,11 +318,8 @@ if not df.empty:
 
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
-    
-    # Adicionamos uma coluna de ação visual no final do DataFrame
-    df_exibicao["ação_editar"] = "✏️ Editar"
 
-    # Exibição limpa em tabela única estruturada, sem caixas de seleção, usando st.data_editor apenas para leitura/clique de linha ou seleção limpa
+    # Tabela unificada limpa configurada para seleção por clique na linha inteira
     evento_tabela = st.dataframe(
         df_exibicao.drop(columns=['rowid']),
         use_container_width=True,
@@ -331,7 +329,7 @@ if not df.empty:
         on_select="rerun"
     )
 
-    # Captura a seleção da linha inteira para abrir o modal de edição
+    # Se o usuário clicar em qualquer célula, o evento captura a linha inteira correspondente
     if evento_tabela and evento_tabela.selection.rows:
         linha_selecionada_idx = evento_tabela.selection.rows[0]
         r_id_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
