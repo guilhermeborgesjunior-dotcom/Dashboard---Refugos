@@ -90,8 +90,9 @@ with st.sidebar:
                 df_novo.to_sql('tabela_notas', conn, if_exists='replace', index=False)
                 conn.close()
                 st.success("Aba 'Notas' importada com sucesso!")
+                st.rerun()
             except Exception as e:
-                st.error(f"Erro ao importar a aba 'Notas'. Verifique se o nome da aba está correto. Detalhe: {e}")
+                st.error(f"Erro ao importar a aba 'Notas'. Detalhe: {e}")
 
     with st.expander("📄 Gerar Relatórios", expanded=False):
         if st.button("Gerar PDF com Gráficos"):
@@ -105,13 +106,20 @@ with st.sidebar:
 # Carrega os dados do banco
 try:
     conn = sqlite3.connect('refugos_weg.db', timeout=10)
-    df = pd.read_sql('SELECT * FROM tabela_notas', conn)
+    df = pd.read_sql('SELECT rowid, * FROM tabela_notas', conn)
     conn.close()
 except:
     df = pd.DataFrame()
 
 if not df.empty:
-    df.columns = [str(c).strip().lower() for c in df.columns]
+    # Padroniza nomes de colunas excluindo 'rowid' da transformação de texto
+    cols_normalizadas = {}
+    for c in df.columns:
+        if c == 'rowid':
+            cols_normalizadas[c] = 'rowid'
+        else:
+            cols_normalizadas[c] = str(c).strip().lower()
+    df = df.rename(columns=cols_normalizadas)
 
     # Função para encontrar colunas com flexibilidade de nomes
     def encontra_coluna(termos):
@@ -188,7 +196,7 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # Mapeamento exato garantindo a ordem: Custo -> Informações (Observação) -> Ação -> Colaborador -> Preparador
+    # Mapeamento para exibição na tela
     mapeamento_colunas = {
         col_secao: "seção",
         col_defeito: "defeito",
@@ -209,15 +217,78 @@ if not df.empty:
         col_prep: "preparador"
     }
 
-    # Seleciona e ordena as colunas na sequência exata da lista
-    colunas_presentes = [k for k in mapeamento_colunas.keys() if k is not None]
+    colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
     # ==================== EXIBIÇÃO NA TELA ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_exibicao)})")
-    st.dataframe(df_exibicao, use_container_width=True)
+    
+    # Exibe a tabela sem a coluna interna 'rowid' visualmente na listagem principal
+    st.dataframe(df_exibicao.drop(columns=['rowid']), use_container_width=True)
 
-    # Botão de limpeza
+    # ==================== SEÇÃO DE EDIÇÃO DE REGISTROS ====================
+    with st.expander("✏️ Editar Informações, Ação, Colaborador ou Preparador de uma Nota", expanded=False):
+        if not df_exibicao.empty:
+            # Cria um seletor amigável mostrando a Nota e a Seção
+            opcoes_notas = {}
+            for idx, row in df_exibicao.iterrows():
+                label = f"Nota: {row['nota']} | Seção: {row['seção']} | Data: {str(row['data'])[:10]}"
+                opcoes_notas[label] = row['rowid']
+
+            escolha_nota = st.selectbox("Selecione o registro para editar:", list(opcoes_notas.keys()))
+            
+            if escolha_nota:
+                selected_rowid = opcoes_notas[escolha_nota]
+                # Pega os dados atuais da linha selecionada no dataframe principal
+                linha_atual = df_filtrado[df_filtrado['rowid'] == selected_rowid].iloc[0]
+
+                st.write("---")
+                st.markdown(f"**Editando a Nota:** `{linha_atual[col_nota] if col_nota else 'N/A'}`")
+
+                with st.form("form_edicao"):
+                    novo_obs = st.text_area("Informações (Observação):", value=str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else "")
+                    nova_acao = st.text_input("Ação:", value=str(linha_atual[col_acao]) if col_acao and pd.notna(linha_atual[col_acao]) else "")
+                    novo_colab = st.text_input("Colaborador:", value=str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else "")
+                    novo_prep = st.text_input("Preparador:", value=str(linha_atual[col_prep]) if col_prep and pd.notna(linha_atual[col_prep]) else "")
+
+                    salvar_edicao = st.form_submit_button("💾 Salvar Alterações no Banco")
+
+                    if salvar_edicao:
+                        try:
+                            conn = sqlite3.connect('refugos_weg.db', timeout=10)
+                            cursor = conn.cursor()
+                            
+                            # Atualiza dinamicamente apenas os campos que existem na tabela
+                            updates = []
+                            params = []
+                            if col_obs:
+                                updates.append(f"{col_obs} = ?")
+                                params.append(novo_obs)
+                            if col_acao:
+                                updates.append(f"{col_acao} = ?")
+                                params.append(nova_acao)
+                            if col_colab:
+                                updates.append(f"{col_colab} = ?")
+                                params.append(novo_colab)
+                            if col_prep:
+                                updates.append(f"{col_prep} = ?")
+                                params.append(novo_prep)
+                            
+                            params.append(selected_rowid)
+                            query = f"UPDATE tabela_notas SET {', '.join(updates)} WHERE rowid = ?"
+                            
+                            cursor.execute(query, params)
+                            conn.commit()
+                            conn.close()
+                            
+                            st.success("Alterações salvas com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao salvar alterações: {e}")
+        else:
+            st.info("Nenhum registro disponível para edição com os filtros atuais.")
+
+    # Botão de limpeza do banco
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
         conn = sqlite3.connect('refugos_weg.db', timeout=10)
         conn.execute('DROP TABLE IF EXISTS tabela_notas')
