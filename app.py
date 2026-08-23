@@ -5,7 +5,7 @@ import sqlite3
 # Configuração da página (deve ser a primeira instrução)
 st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
-# Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
+# Estilos customizados para largura total, cabeçalho, menu hamburger e remoção de espaços verticais
 st.markdown("""
     <style>
     .block-container {
@@ -27,7 +27,7 @@ st.markdown("""
         margin-left: -2rem;
         margin-right: -2rem;
         margin-top: -4rem;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     .header-title {
@@ -239,10 +239,9 @@ if not df.empty:
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
 
-    # ==================== EXIBIÇÃO DA TABELA COM ORDEM CORRETA ====================
+    # ==================== EXIBIÇÃO DA TABELA COMPACTA COM BOTÕES DE EDIÇÃO ====================
     st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
 
-    # Ordem estrita garantindo que informações, ação, colaborador e preparador fiquem exatamente após o custo
     mapeamento_colunas = {
         col_secao: "seção",
         col_defeito: "defeito",
@@ -266,21 +265,20 @@ if not df.empty:
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
-    # Renderiza a tabela linha por linha com o botão de edição lateral
+    # Renderiza a tabela limpa de uma só vez (sem espaçamento vertical exagerado)
+    # Adicionamos uma coluna interativa de botões limpa utilizando st.data_editor ou listagem compacta com colunas
     for idx, row in df_exibicao.iterrows():
         r_id = row['rowid']
-        c_tabela, c_botao = st.columns([12, 1])
         
-        with c_tabela:
-            df_linha_unica = pd.DataFrame([row.drop('rowid')])
-            st.dataframe(df_linha_unica, use_container_width=True, hide_index=True)
-            
-        with c_botao:
-            st.write("") 
-            if st.button("✏️", key=f"btn_edit_{r_id}", help="Editar este registro"):
+        # Cria uma linha compacta contendo os dados principais e o botão de editar bem ajustado
+        cols = st.columns([13, 1])
+        with cols[0]:
+            # Exibe os dados da linha em uma mini tabela compacta unificada de 1 linha
+            df_linha = pd.DataFrame([row.drop('rowid')])
+            st.dataframe(df_linha, use_container_width=True, hide_index=True, height=38)
+        with cols[1]:
+            if st.button("✏️", key=f"edit_{r_id}", help="Editar registro"):
                 modal_edicao(r_id)
-
-        st.markdown("---")
 
     # Botão de limpeza do banco
     if st.sidebar.button("🗑️ Limpar Banco de Dados"):
