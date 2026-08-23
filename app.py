@@ -183,35 +183,73 @@ if not df.empty:
     if col_data and 'data_ini' in locals() and 'data_fim' in locals():
         df_filtrado = df_filtrado[(df_filtrado[col_data].dt.date >= data_ini) & (df_filtrado[col_data].dt.date <= data_fim)]
 
-    # ==================== POP-UP DE EDIÇÃO EM MODAL (ST.DIALOG) ====================
-    @st.dialog("✏️ Editar Registro da Nota", width="large")
+    # ==================== POP-UP DE EDIÇÃO DA NOTA (COMPLETO) ====================
+    @st.dialog("✏️ Edição Completa da Nota de Refugo", width="large")
     def modal_edicao(rowid_alvo):
         linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
         
-        st.markdown(f"### Nota: `{linha_atual[col_nota] if col_nota else 'N/A'}` | Seção: `{linha_atual[col_secao] if col_secao else 'N/A'}`")
-        st.write("Utilize as abas abaixo para editar as informações:")
+        num_nota = linha_atual[col_nota] if col_nota and pd.notna(linha_atual[col_nota]) else 'N/A'
+        st.markdown(f"### 📋 Nota de Referência: `{num_nota}`")
+        st.write("Visualize e edite abaixo todas as informações correspondentes a esta nota, separadas por categorias:")
 
         with st.form(f"form_modal_{rowid_alvo}"):
             aba_info, aba_acao, aba_colab, aba_prep = st.tabs(["Informações", "Ação", "Colaborador", "Preparador"])
 
+            # 1. ABA INFORMAÇÕES (Dados gerais da nota, materiais, defeitos, custos, etc.)
             with aba_info:
+                st.markdown("##### Dados Gerais e Técnicos da Nota")
+                c1, c2, c3 = st.columns(3)
+                
+                with c1:
+                    val_secao = str(linha_atual[col_secao]) if col_secao and pd.notna(linha_atual[col_secao]) else ""
+                    nova_secao = st.text_input("Seção", value=val_secao)
+                    
+                    val_nota = str(linha_atual[col_nota]) if col_nota and pd.notna(linha_atual[col_nota]) else ""
+                    nova_nota = st.text_input("Nota", value=val_nota)
+                    
+                    val_turno = str(linha_atual[col_turno]) if col_turno and pd.notna(linha_atual[col_turno]) else ""
+                    novo_turno = st.text_input("Turno", value=val_turno)
+
+                with c2:
+                    val_material = str(linha_atual[col_material]) if col_material and pd.notna(linha_atual[col_material]) else ""
+                    novo_material = st.text_input("Material", value=val_material)
+                    
+                    val_desc_mat = str(linha_atual[col_desc_mat]) if col_desc_mat and pd.notna(linha_atual[col_desc_mat]) else ""
+                    nova_desc_mat = st.text_input("Descrição do Material", value=val_desc_mat)
+                    
+                    val_qtd = str(linha_atual[col_qtd]) if col_qtd and pd.notna(linha_atual[col_qtd]) else ""
+                    nova_qtd = st.text_input("Quantidade", value=val_qtd)
+
+                with c3:
+                    val_custo = str(linha_atual[col_custo]) if col_custo and pd.notna(linha_atual[col_custo]) else ""
+                    novo_custo = st.text_input("Custo", value=val_custo)
+                    
+                    val_causa = str(linha_atual[col_causa]) if col_causa and pd.notna(linha_atual[col_causa]) else ""
+                    nova_causa = st.text_input("Causa", value=val_causa)
+
                 val_obs = str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else ""
-                novo_obs = st.text_area("Informações (Observação):", value=val_obs, height=120)
+                novo_obs = st.text_area("Observações / Informações Detalhadas:", value=val_obs, height=80)
 
+            # 2. ABA AÇÃO (Ações corretivas ou operacionais vinculadas)
             with aba_acao:
+                st.markdown("##### Ações Corretivas e Planos")
                 val_acao = str(linha_atual[col_acao]) if col_acao and pd.notna(linha_atual[col_acao]) else ""
-                nova_acao = st.text_input("Ação corretiva/operacional:", value=val_acao)
+                nova_acao = st.text_area("Ação executada / Planejada:", value=val_acao, height=120)
 
+            # 3. ABA COLABORADOR (Responsável pelo apontamento/operação)
             with aba_colab:
+                st.markdown("##### Gestão de Colaboradores")
                 val_colab = str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else ""
                 novo_colab = st.text_input("Colaborador responsável:", value=val_colab)
 
+            # 4. ABA PREPARADOR (Responsável pela preparação da máquina/processo)
             with aba_prep:
+                st.markdown("##### Gestão de Preparadores")
                 val_prep = str(linha_atual[col_prep]) if col_prep and pd.notna(linha_atual[col_prep]) else ""
                 novo_prep = st.text_input("Preparador responsável:", value=val_prep)
 
             st.write("")
-            salvar = st.form_submit_button("💾 Salvar Alterações", type="primary")
+            salvar = st.form_submit_button("💾 Salvar Alterações da Nota", type="primary")
             
             if salvar:
                 try:
@@ -220,18 +258,20 @@ if not df.empty:
                     
                     updates = []
                     params = []
-                    if col_obs:
-                        updates.append(f"{col_obs} = ?")
-                        params.append(novo_obs)
-                    if col_acao:
-                        updates.append(f"{col_acao} = ?")
-                        params.append(nova_acao)
-                    if col_colab:
-                        updates.append(f"{col_colab} = ?")
-                        params.append(novo_colab)
-                    if col_prep:
-                        updates.append(f"{col_prep} = ?")
-                        params.append(novo_prep)
+                    
+                    # Mapeia todos os campos editados de volta para o banco
+                    if col_secao: updates.append(f"{col_secao} = ?"); params.append(nova_secao)
+                    if col_nota: updates.append(f"{col_nota} = ?"); params.append(nova_nota)
+                    if col_turno: updates.append(f"{col_turno} = ?"); params.append(novo_turno)
+                    if col_material: updates.append(f"{col_material} = ?"); params.append(novo_material)
+                    if col_desc_mat: updates.append(f"{col_desc_mat} = ?"); params.append(nova_desc_mat)
+                    if col_qtd: updates.append(f"{col_qtd} = ?"); params.append(nova_qtd)
+                    if col_custo: updates.append(f"{col_custo} = ?"); params.append(novo_custo)
+                    if col_causa: updates.append(f"{col_causa} = ?"); params.append(nova_causa)
+                    if col_obs: updates.append(f"{col_obs} = ?"); params.append(novo_obs)
+                    if col_acao: updates.append(f"{col_acao} = ?"); params.append(nova_acao)
+                    if col_colab: updates.append(f"{col_colab} = ?"); params.append(novo_colab)
+                    if col_prep: updates.append(f"{col_prep} = ?"); params.append(novo_prep)
                     
                     params.append(rowid_alvo)
                     query = f"UPDATE tabela_notas SET {', '.join(updates)} WHERE rowid = ?"
@@ -240,7 +280,7 @@ if not df.empty:
                     conn.commit()
                     conn.close()
                     
-                    st.success("Atualizado com sucesso!")
+                    st.success("Nota atualizada com sucesso!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
@@ -271,14 +311,6 @@ if not df.empty:
     colunas_presentes = ['rowid'] + [k for k in mapeamento_colunas.keys() if k is not None]
     df_exibicao = df_filtrado[colunas_presentes].rename(columns=mapeamento_colunas)
 
-    # Criamos uma coluna visual extra para o botão de edição direto na tabela unificada
-    col_acoes_acoes = []
-    for r_id in df_exibicao['rowid']:
-        col_acoes_acoes.append("✏️ Editar")
-    
-    df_exibicao['Ações'] = col_acoes_acoes
-
-    # Exibe a tabela completa em um único bloco com altura fixa (ativa o sticky header nativo e rolagem interna)
     evento_selecao = st.dataframe(
         df_exibicao.drop(columns=['rowid']),
         use_container_width=True,
@@ -288,8 +320,6 @@ if not df.empty:
         on_select="rerun"
     )
 
-    # Se o usuário clicar em uma linha ou quisermos dar suporte via seleção na tabela nativa:
-    # Como alternativa prática e direta para abrir o pop-up da linha selecionada:
     if evento_selecao and evento_selecao.selection.rows:
         linha_selecionada_idx = evento_selecao.selection.rows[0]
         r_id_selecionado = df_exibicao.iloc[linha_selecionada_idx]['rowid']
