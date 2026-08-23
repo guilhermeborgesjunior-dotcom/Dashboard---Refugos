@@ -7,7 +7,7 @@ from io import BytesIO
 import re
 
 # ============================================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO INICIAL
 # ============================================================
 st.set_page_config(
     page_title="Dashboard Refugos - WEG UFE",
@@ -17,6 +17,7 @@ st.set_page_config(
 
 DB_PATH = Path("refugos_weg.db")
 TABLE_NAME = "tabela_notas"
+PREFS_FILE = Path(".preferencias_usuario.json")  # Arquivo que salva suas escolhas
 
 COLUNAS_IMPORTAR = {
     "SEÇÃO": 2, "DEFEITO": 3, "NOTA": 4, "DATA": 5, "TURNO": 6,
@@ -25,15 +26,41 @@ COLUNAS_IMPORTAR = {
     "TEXTO DA CAUSA": 18, "CUSTO REFUGO": 20,
 }
 
+# ✅ COLUNAS EXTRAS DO SISTEMA
+COLUNAS_SISTEMA = ["rowid", "Observações", "Ação", "Colaborador", "Preparador", "APQ", "TWTP"]
+
+# ============================================================
+# 💾 SALVAR/CARREGAR PREFERÊNCIAS DE COLUNAS
+# ============================================================
+import json
+
+def carregar_preferencias():
+    """Carrega quais colunas você escolheu ver da última vez"""
+    if PREFS_FILE.exists():
+        try:
+            with open(PREFS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def salvar_preferencias(pref):
+    """Salva sua escolha de colunas para a próxima vez"""
+    try:
+        with open(PREFS_FILE, "w", encoding="utf-8") as f:
+            json.dump(pref, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+# Carrega preferências salvas
+prefs = carregar_preferencias()
+
 # ============================================================
 # 🎨 ESTILO PROFISSIONAL
 # ============================================================
 st.markdown("""
 <style>
-/* ---- Layout Geral ---- */
 .block-container { padding: 1rem 2rem !important; max-width: 100% !important; }
-
-/* ---- Cabeçalho Compacto ---- */
 .header-container {
     background: linear-gradient(90deg, #0a192f 0%, #112240 100%);
     padding: 1.2rem 2rem;
@@ -44,8 +71,6 @@ st.markdown("""
 }
 .header-title { font-size: 1.6rem; font-weight: 700; margin: 0; color: #fff; }
 .header-subtitle { font-size: 0.95rem; color: #8892b0; margin-top: 0.25rem; }
-
-/* ---- Cards de Indicadores ---- */
 .metric-card {
     background: #f8fafc;
     border-radius: 8px;
@@ -59,21 +84,10 @@ st.markdown("""
 .metric-card.apq   { border-color: #8b5cf6; }
 .metric-value { font-size: 1.8rem; font-weight: 700; line-height: 1.2; }
 .metric-label { font-size: 0.85rem; color: #64748b; }
-
-/* ---- Tabela ---- */
 div[data-testid="stDataFrame"] { border-radius: 8px; }
-table { font-size: 0.9rem; }
 th { background: #f1f5f9 !important; color: #334155 !important; font-weight: 600 !important; }
 tr:nth-child(even) { background: #f8fafc; }
-
-/* ---- Botões ---- */
-div.stButton > button:first-child { width: 100%; }
-.btn-danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-.btn-danger:hover { background: #fee2e2; color: #b91c1c; }
-
-/* ---- Sidebar ---- */
 section[data-testid="stSidebar"] { background: #f1f5f9; }
-section[data-testid="stSidebar"] > div { padding: 1.5rem 1rem; }
 </style>
 
 <div class="header-container">
@@ -210,7 +224,7 @@ def ler_arquivo_otimizado(arquivo_carregado):
     return df
 
 # ============================================================
-# 💾 SALVAR
+# 💾 SALVAR DADOS
 # ============================================================
 def salvar_dados(df_novo):
     col_nota = find_column(df_novo, ["nota"])
@@ -252,7 +266,7 @@ def salvar_dados(df_novo):
     return len(df_novo), novas
 
 # ============================================================
-# 📂 BARRA LATERAL — ORGANIZADA
+# 📂 BARRA LATERAL
 # ============================================================
 with st.sidebar:
     st.header("📂 Importar Dados")
@@ -276,8 +290,8 @@ with st.sidebar:
     
     pesq = st.text_input("Pesquisar Nota", placeholder="Digite o número...")
     
-    col_data = find_column(load_data(), ["data"])
     df_temp = load_data()
+    col_data = find_column(df_temp, ["data"])
     tem_data = col_data and not df_temp.empty
     
     f_ano = f_mes = "Todos"
@@ -295,10 +309,42 @@ with st.sidebar:
     f_turno = st.selectbox("⏰ Turno", turnos)
 
     st.divider()
+    st.header("👁️ Colunas Visíveis")
+    
+    # ========================================================
+    # ✅ CONTROLE DE COLUNAS VISÍVEIS — COM MEMÓRIA
+    # ========================================================
+    if not df_temp.empty:
+        todas_colunas = [c for c in df_temp.columns if not c.startswith("__")]
+        
+        # Recupera estado salvo ou mostra todas por padrão
+        colunas_visiveis_salvas = prefs.get("colunas_visiveis", todas_colunas)
+        
+        # Filtra colunas que ainda existem
+        colunas_visiveis_salvas = [c for c in colunas_visiveis_salvas if c in todas_colunas]
+        
+        # Interface para escolher colunas
+        selecionadas = st.multiselect(
+            "Escolha quais colunas ver:",
+            options=todas_colunas,
+            default=colunas_visiveis_salvas,
+            key="seletor_colunas"
+        )
+        
+        # Salva automaticamente quando muda
+        if selecionadas != colunas_visiveis_salvas:
+            prefs["colunas_visiveis"] = selecionadas
+            salvar_preferencias(prefs)
+            st.toast("✅ Preferência de colunas salva!")
+    else:
+        selecionadas = []
+
+    st.divider()
     st.header("⚠️ Administração")
     if st.button("🗑️ Limpar Banco", type="secondary"):
         if DB_PATH.exists():
             DB_PATH.unlink()
+            PREFS_FILE.unlink(missing_ok=True)  # Apaga preferências também
             st.success("✅ Banco apagado! Reimporte o arquivo.")
             st.rerun()
 
@@ -321,7 +367,6 @@ col_obs = find_column(df, ["observação", "observacao", "observações"])
 col_acao = find_column(df, ["ação", "acao"])
 col_colab = find_column(df, ["colaborador"])
 
-# Data para filtro
 df["__dt__"] = pd.to_datetime(df[col_data], format="%d/%m/%Y", errors="coerce") if col_data else pd.NaT
 df["__ano__"] = df["__dt__"].dt.year.astype("Int64")
 df["__mes__"] = df["__dt__"].dt.month.astype("Int64")
@@ -342,11 +387,10 @@ if f_mes != "Todos":
     df_f = df_f[df_f["__mes__"].astype(str) == f_mes]
 
 # ============================================================
-# 📊 INDICADORES COM CARDS COLORIDOS
+# 📊 INDICADORES
 # ============================================================
 st.markdown(f"### 📊 Visão Geral · {len(df_f)} registros")
 
-# Cálculos
 total_notas = df_f[col_nota].nunique() if col_nota else 0
 qtd_total = df_f[col_qtd].apply(converter_quantidade_inteira).sum() if col_qtd else 0
 custo_total = df_f[col_custo].apply(converter_custo).sum() if col_custo else 0
@@ -354,7 +398,6 @@ total_registros = len(df_f)
 concluidas = df_f[col_apq].astype(str).str.lower().isin(["concluída", "concluida", "sim"]).sum() if col_apq else 0
 perc_apq = (concluidas / total_registros * 100) if total_registros > 0 else 0
 
-# Cards em linha
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
@@ -393,20 +436,29 @@ with c4:
 st.divider()
 
 # ============================================================
-# 📋 TABELA
+# 📋 TABELA — MOSTRA SOMENTE AS COLUNAS ESCOLHIDAS
 # ============================================================
-cols_exibir = [c for c in df_f.columns if c not in ["__dt__", "__ano__", "__mes__"]]
-df_edit = df_f[cols_exibir].copy()
+# Usa colunas salvas ou todas
+if selecionadas:
+    colunas_exibir = selecionadas
+else:
+    colunas_exibir = [c for c in df_f.columns if not c.startswith("__")]
+
+# Garante que rowid fique para salvar alterações
+if "rowid" in df_f.columns and "rowid" not in colunas_exibir:
+    colunas_exibir = ["rowid"] + colunas_exibir
+
+df_edit = df_f[colunas_exibir].copy()
 
 cfg = {}
-if col_apq:
+if col_apq and col_apq in colunas_exibir:
     cfg[col_apq] = st.column_config.SelectboxColumn("APQ", options=["Pendente", "Concluída"], required=True)
-if col_qtd:
+if col_qtd and col_qtd in colunas_exibir:
     cfg[col_qtd] = st.column_config.NumberColumn("QUANTIDADE", format="%d", min_value=0)
-if col_custo:
+if col_custo and col_custo in colunas_exibir:
     cfg[col_custo] = st.column_config.NumberColumn("CUSTO REFUGO", format="R$ %.2f")
 
-# Botão salvar acima da tabela
+# Botão salvar
 if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
     try:
         if "rowid" not in df_edit.columns:
