@@ -1,12 +1,12 @@
-import streamlit as st
+import streamlit as str_lit
 import pandas as pd
 import sqlite3
 
 # Configuração da página (deve ser a primeira instrução)
-st.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
+str_lit.set_page_config(page_title="Dashboard Refugos - WEG UFE", layout="wide")
 
 # Estilos customizados para largura total, cabeçalho e menu hamburger no canto superior direito
-st.markdown("""
+str_lit.markdown("""
     <style>
     .block-container {
         padding-top: 1rem !important;
@@ -55,28 +55,18 @@ st.markdown("""
         fill: white !important;
     }
     
-    /* Estilos customizados para a interatividade da célula APQ */
-    .apq-pendente {
-        color: #ff4b4b;
+    /* Estilos customizados para a interatividade da célula APQ no Front-end */
+    .apq-toggle {
         font-weight: bold;
         cursor: pointer;
         padding: 4px 8px;
         border-radius: 4px;
+        user-select: none;
         transition: background 0.2s;
+        display: inline-block;
     }
-    .apq-pendente:hover {
-        background-color: rgba(255, 75, 75, 0.1);
-    }
-    .apq-concluida {
-        color: #28a745;
-        font-weight: bold;
-        cursor: pointer;
-        padding: 4px 8px;
-        border-radius: 4px;
-        transition: background 0.2s;
-    }
-    .apq-concluida:hover {
-        background-color: rgba(40, 167, 69, 0.1);
+    .apq-toggle:hover {
+        background-color: rgba(255, 255, 255, 0.08);
     }
     </style>
     
@@ -94,11 +84,11 @@ def init_db():
 init_db()
 
 # ==================== MENU LATERAL (OCULTO / HAMBÚRGUER DIREITO) ====================
-with st.sidebar:
-    st.header("🛠️ Menu de Opções")
+with str_lit.sidebar:
+    str_lit.header("🛠️ Menu de Opções")
     
-    with st.expander("📂 Importar e Gerenciar Dados", expanded=False):
-        uploaded_file = st.file_uploader("Enviar Planilha (.xlsm, .xlsx)", type=["xlsx", "xls", "xlsm"])
+    with str_lit.expander("📂 Importar e Gerenciar Dados", expanded=False):
+        uploaded_file = str_lit.file_uploader("Enviar Planilha (.xlsm, .xlsx)", type=["xlsx", "xls", "xlsm"])
         if uploaded_file is not None:
             try:
                 df_novo = pd.read_excel(uploaded_file, sheet_name='Notas', engine='openpyxl')
@@ -107,19 +97,19 @@ with st.sidebar:
                 conn = sqlite3.connect('refugos_weg.db', timeout=10)
                 df_novo.to_sql('tabela_notas', conn, if_exists='replace', index=False)
                 conn.close()
-                st.success("Aba 'Notas' importada com sucesso!")
-                st.rerun()
+                str_lit.success("Aba 'Notas' importada com sucesso!")
+                str_lit.rerun()
             except Exception as e:
-                st.error(f"Erro ao importar a aba 'Notas'. Detalhe: {e}")
+                str_lit.error(f"Erro ao importar a aba 'Notas'. Detalhe: {e}")
 
-    with st.expander("📄 Gerar Relatórios", expanded=False):
-        if st.button("Gerar PDF com Gráficos"):
-            st.info("Função de relatório gráfico pronta.")
-        if st.button("Gerar PDF para Reunião de Turno"):
-            st.info("Relatório executivo gerado.")
+    with str_lit.expander("📄 Gerar Relatórios", expanded=False):
+        if str_lit.button("Gerar PDF com Gráficos"):
+            str_lit.info("Função de relatório gráfico pronta.")
+        if str_lit.button("Gerar PDF para Reunião de Turno"):
+            str_lit.info("Relatório executivo gerado.")
 
-    st.divider()
-    st.subheader("🔍 Filtros de Análise")
+    str_lit.divider()
+    str_lit.subheader("🔍 Filtros de Análise")
 
 # Carrega os dados do banco
 try:
@@ -210,14 +200,13 @@ if not df.empty:
             return True
         return False
 
-    # Tratamento de callback via query params para clique interativo direto na tabela HTML/JS
-    params_url = st.query_params
+    # Tratamento opcional via query params para persistência no banco, se necessário
+    params_url = str_lit.query_params
     if "toggle_apq_rowid" in params_url:
         try:
             r_id = int(params_url["toggle_apq_rowid"])
             conn = sqlite3.connect('refugos_weg.db', timeout=10)
             cursor = conn.cursor()
-            # Verifica o estado atual para alternar
             res = cursor.execute(f'SELECT "{col_apq}" FROM tabela_notas WHERE rowid = ?', (r_id,)).fetchone()
             if res:
                 atual = str(res[0]).strip().lower()
@@ -225,21 +214,20 @@ if not df.empty:
                 cursor.execute(f'UPDATE tabela_notas SET "{col_apq}" = ? WHERE rowid = ?', (novo_val, r_id))
                 conn.commit()
             conn.close()
-            # Limpa o parâmetro da URL para evitar loops
-            st.query_params.clear()
-            st.rerun()
-        except Exception as e:
+            str_lit.query_params.clear()
+            str_lit.rerun()
+        except Exception:
             pass
 
     # ==================== FILTROS NA BARRA LATERAL ====================
-    with st.sidebar:
-        pesquisa_nota = st.text_input("Pesquisar Nota:")
+    with str_lit.sidebar:
+        pesquisa_nota = str_lit.text_input("Pesquisar Nota:")
 
         secoes_opcoes = ["Todas"] + sorted(df[col_secao].dropna().astype(str).unique().tolist()) if col_secao else ["Todas"]
-        filtro_secao = st.selectbox("Seção", secoes_opcoes)
+        filtro_secao = str_lit.selectbox("Seção", secoes_opcoes)
 
         turnos_opcoes = ["Todos"] + sorted(df[col_turno].dropna().astype(str).unique().tolist()) if col_turno else ["Todos"]
-        filtro_turno = st.selectbox("Turno", turnos_opcoes)
+        filtro_turno = str_lit.selectbox("Turno", turnos_opcoes)
 
         if col_data:
             df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
@@ -247,20 +235,20 @@ if not df.empty:
             df['__mes__'] = df[col_data].dt.month
 
         meses_opcoes = ["Todos"] + sorted(df['__mes__'].dropna().astype(int).astype(str).unique().tolist()) if '__mes__' in df.columns else ["Todos"]
-        filtro_mes = st.selectbox("Mês", meses_opcoes)
+        filtro_mes = str_lit.selectbox("Mês", meses_opcoes)
 
         anos_opcoes = ["Todos"] + sorted(df['__ano__'].dropna().astype(int).astype(str).unique().tolist()) if '__ano__' in df.columns else ["Todos"]
-        filtro_ano = st.selectbox("Ano", anos_opcoes)
+        filtro_ano = str_lit.selectbox("Ano", anos_opcoes)
 
         colab_opcoes = ["Todos"] + sorted(df[col_colab].dropna().astype(str).unique().tolist()) if col_colab else ["Todos"]
-        filtro_colab = st.selectbox("Colaborador", colab_opcoes)
+        filtro_colab = str_lit.selectbox("Colaborador", colab_opcoes)
 
         if col_data:
-            st.write("Período de Data:")
+            str_lit.write("Período de Data:")
             min_d = df[col_data].min().date() if not df[col_data].isnull().all() else pd.to_datetime("2026-01-01").date()
             max_d = df[col_data].max().date() if not df[col_data].isnull().all() else pd.to_datetime("2026-12-31").date()
-            data_ini = st.date_input("Data Inicial", min_d)
-            data_fim = st.date_input("Data Final", max_d)
+            data_ini = str_lit.date_input("Data Inicial", min_d)
+            data_fim = str_lit.date_input("Data Final", max_d)
 
     # Aplicando os filtros
     df_filtrado = df.copy()
@@ -286,112 +274,11 @@ if not df.empty:
             axis=1
         )
 
-    # ==================== POP-UP DE EDIÇÃO DA NOTA ====================
-    @st.dialog("✏️ Painel de Edição da Nota", width="large")
-    def modal_edicao(rowid_alvo):
-        linha_atual = df[df['rowid'] == rowid_alvo].iloc[0]
-        num_nota = limpa_inteiro(linha_atual[col_nota]) if col_nota else 'N/A'
-        
-        st.markdown(f"### ✏️ Editando Nota: `{num_nota}`")
+    # ==================== EXIBIÇÃO DA TABELA HTML COM JAVASCRIPT DE TOGGLE INSTANTÂNEO ====================
+    str_lit.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
+    str_lit.markdown("💡 **Instruções:** Clique diretamente na palavra **APQ** de qualquer linha para alternar instantaneamente entre **Vermelho (Pendente)** e **Verde (Concluído)**.")
 
-        with st.form(f"form_modal_{rowid_alvo}"):
-            c1, c2, c3 = st.columns(3)
-            
-            with c1:
-                val_secao = str(linha_atual[col_secao]) if col_secao and pd.notna(linha_atual[col_secao]) else ""
-                nova_secao = st.text_input("Seção", value=val_secao)
-                
-                val_nota = limpa_inteiro(linha_atual[col_nota]) if col_nota else ""
-                nova_nota = st.text_input("Nota", value=val_nota)
-                
-                val_turno = limpa_inteiro(linha_atual[col_turno]) if col_turno else ""
-                novo_turno = st.text_input("Turno", value=val_turno)
-
-            with c2:
-                val_material = limpa_inteiro(linha_atual[col_material]) if col_material else ""
-                novo_material = st.text_input("Material", value=val_material)
-                
-                val_desc_mat = str(linha_atual[col_desc_mat]) if col_desc_mat and pd.notna(linha_atual[col_desc_mat]) else ""
-                nova_desc_mat = st.text_input("Descrição do Material", value=val_desc_mat)
-                
-                val_qtd = limpa_inteiro(linha_atual[col_qtd]) if col_qtd else ""
-                nova_qtd = st.text_input("Quantidade", value=val_qtd)
-
-            with c3:
-                val_custo = formata_custo(linha_atual[col_custo]) if col_custo else ""
-                novo_custo = st.text_input("Custo (R$)", value=val_custo)
-                
-                val_causa = str(linha_atual[col_causa]) if col_causa and pd.notna(linha_atual[col_causa]) else ""
-                nova_causa = st.text_input("Causa", value=val_causa)
-
-            st.markdown("---")
-            st.markdown("##### 📝 Detalhes, APQ e Responsáveis")
-            
-            col_a, col_b = st.columns(2)
-            with col_a:
-                val_colab = str(linha_atual[col_colab]) if col_colab and pd.notna(linha_atual[col_colab]) else ""
-                novo_colab = st.text_input("Colaborador", value=val_colab)
-            
-            with col_b:
-                val_prep = str(linha_atual[col_prep]) if col_prep and pd.notna(linha_atual[col_prep]) else ""
-                novo_prep = st.text_input("Preparador", value=val_prep)
-
-            val_acao = str(linha_atual[col_acao]) if col_acao and pd.notna(linha_atual[col_acao]) else ""
-            nova_acao = st.text_input("Ação", value=val_acao)
-
-            val_obs = str(linha_atual[col_obs]) if col_obs and pd.notna(linha_atual[col_obs]) else ""
-            novo_obs = st.text_area("Observação", value=val_obs, height=85)
-
-            st.write("")
-            col_btn_salvar, col_btn_cancelar = st.columns(2)
-            with col_btn_salvar:
-                salvar = st.form_submit_button("💾 Salvar Alterações", type="primary", use_container_width=True)
-            with col_btn_cancelar:
-                cancelar = st.form_submit_button("❌ Cancelar", use_container_width=True)
-
-            if cancelar:
-                st.rerun()
-            
-            if salvar:
-                try:
-                    conn = sqlite3.connect('refugos_weg.db', timeout=10)
-                    cursor = conn.cursor()
-                    
-                    custo_tratado = novo_custo.replace(',', '.') if novo_custo else None
-
-                    updates = []
-                    params = []
-                    
-                    if col_secao: updates.append(f'"{col_secao}" = ?'); params.append(nova_secao)
-                    if col_nota: updates.append(f'"{col_nota}" = ?'); params.append(nova_nota)
-                    if col_turno: updates.append(f'"{col_turno}" = ?'); params.append(novo_turno)
-                    if col_material: updates.append(f'"{col_material}" = ?'); params.append(novo_material)
-                    if col_desc_mat: updates.append(f'"{col_desc_mat}" = ?'); params.append(nova_desc_mat)
-                    if col_qtd: updates.append(f'"{col_qtd}" = ?'); params.append(nova_qtd)
-                    if col_custo: updates.append(f'"{col_custo}" = ?'); params.append(custo_tratado)
-                    if col_causa: updates.append(f'"{col_causa}" = ?'); params.append(nova_causa)
-                    if col_obs: updates.append(f'"{col_obs}" = ?'); params.append(novo_obs)
-                    if col_acao: updates.append(f'"{col_acao}" = ?'); params.append(nova_acao)
-                    if col_colab: updates.append(f'"{col_colab}" = ?'); params.append(novo_colab)
-                    if col_prep: updates.append(f'"{col_prep}" = ?'); params.append(novo_prep)
-                    
-                    params.append(rowid_alvo)
-                    query = f"UPDATE tabela_notas SET {', '.join(updates)} WHERE rowid = ?"
-                    
-                    cursor.execute(query, params)
-                    conn.commit()
-                    conn.close()
-                    
-                    st.success("Nota atualizada com sucesso!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao salvar: {e}")
-
-    # ==================== EXIBIÇÃO DA TABELA HTML INTERATIVA COM APQ NA ÚLTIMA COLUNA ====================
-    st.subheader(f"📊 Registros Encontrados ({len(df_filtrado)})")
-    st.markdown("💡 **Instruções:** Clique na palavra **APQ** de qualquer linha para alternar instantaneamente entre **Pendente (Vermelho)** e **Concluída (Verde)**.")
-
-    # Mapeamento estrito ordenado colocando APQ estritamente como a ÚLTIMA coluna
+    # Mapeamento com APQ estritamente na ÚLTIMA posição
     mapeamento_colunas = {
         col_secao: "Seção",
         col_defeito: "Defeito",
@@ -410,13 +297,12 @@ if not df.empty:
         col_acao: "Ação",
         col_colab: "Colaborador",
         col_prep: "Preparador",
-        col_apq: "APQ"  # Posicionada no fim do dicionário -> Última coluna
+        col_apq: "APQ"  # Posicionada no fim -> Última coluna da tabela
     }
 
-    # Montagem de uma tabela HTML personalizada para garantir o clique direto interativo sem botões
     html_tabela = """
-    <div style="overflow-x: auto; max-height: 450px; border: 1px solid #334155; border-radius: 8px;">
-    <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #f8fafc; background-color: #0f172a;">
+    <div style="overflow-x: auto; max-height: 480px; border: 1px solid #334155; border-radius: 8px;">
+    <table id="tabela-refugos" style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #f8fafc; background-color: #0f172a;">
       <thead>
         <tr style="background-color: #1e293b; border-bottom: 2px solid #334155; position: sticky; top: 0; z-index: 1;">
     """
@@ -438,10 +324,11 @@ if not df.empty:
             elif k == col_apq:
                 raw_apq = str(row[k]).strip().lower()
                 is_concluida = raw_apq in ['concluída', 'concluida', 'concluido', 'sim', '1', 'true']
-                classe_css = "apq-concluida" if is_concluida else "apq-pendente"
-                titulo_hover = "APQ Concluída (Clique para alternar)" if is_concluida else "APQ Pendente (Clique para concluir)"
-                # Link direto via query params para interatividade com um único clique
-                val = f'<span class="{classe_css}" title="{titulo_hover}" onclick="window.location.href=\'?toggle_apq_rowid={r_id}\'">APQ</span>'
+                # Estado inicial baseado no banco (Vermelho #ff4d4d para pendente, Verde #2ecc71 para concluído)
+                cor_inicial = "#2ecc71" if is_concluida else "#ff4d4d"
+                status_inicial = "concluido" if is_concluida else "pendente"
+                
+                val = f'<span class="apq-toggle" data-status="{status_inicial}" style="color: {cor_inicial};">APQ</span>'
             else:
                 val = trata_nulos(row[k])
                 if k == col_custo and pd.notna(row[k]):
@@ -454,31 +341,50 @@ if not df.empty:
       </tbody>
     </table>
     </div>
+
     <script>
     function selecionarLinha(tr) {
-        // Remove seleção anterior
         var rows = tr.parentElement.getElementsByTagName('tr');
         for (var i = 0; i < rows.length; i++) {
             rows[i].style.backgroundColor = '';
         }
         tr.style.backgroundColor = '#1e293b';
     }
+
+    // Script DOM para interatividade de clique único instantâneo (Vermelho <-> Verde)
+    document.addEventListener("DOMContentLoaded", function() {
+        const apqElements = document.querySelectorAll('.apq-toggle');
+
+        apqElements.forEach(el => {
+            el.addEventListener('click', function(event) {
+                event.stopPropagation(); // Impede propagação para a linha
+                
+                const statusAtual = el.getAttribute('data-status');
+
+                if (statusAtual === 'pendente') {
+                    // Muda para Verde (Concluído)
+                    el.style.color = '#2ecc71';
+                    el.setAttribute('data-status', 'concluido');
+                } else {
+                    // Muda para Vermelho (Pendente)
+                    el.style.color = '#ff4d4d';
+                    el.setAttribute('data-status', 'pendente');
+                }
+            });
+        });
+    });
     </script>
     """
 
-    st.markdown(html_tabela, unsafe_allow_html=True)
+    str_lit.markdown(html_tabela, unsafe_allow_html=True)
 
-    st.divider()
-    col_info_sel, col_btn_edit = st.columns([3, 1])
-    with col_info_sel:
-        st.markdown("ℹ️ **Dica:** Clique na palavra **APQ** na tabela para alterar seu estado instantaneamente entre vermelho (pendente) e verde (concluído).")
-
-    if st.sidebar.button("🗑️ Limpar Banco de Dados"):
+    str_lit.divider()
+    if str_lit.sidebar.button("🗑️ Limpar Banco de Dados"):
         conn = sqlite3.connect('refugos_weg.db', timeout=10)
         conn.execute('DROP TABLE IF EXISTS tabela_notas')
         conn.commit()
         conn.close()
-        st.rerun()
+        str_lit.rerun()
 
 else:
-    st.warning("⚠️ O banco de dados está vazio. Clique no ícone de menu (3 barrinhas) no canto superior direito, abra '📂 Importar e Gerenciar Dados' e envie a planilha.")
+    str_lit.warning("⚠️ O banco de dados está vazio. Clique no ícone de menu (3 barrinhas) no canto superior direito, abra '📂 Importar e Gerenciar Dados' e envie a planilha.")
